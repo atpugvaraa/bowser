@@ -72,9 +72,12 @@ public final class BrowserEngine {
     return id
   }
   /// Closing sleeps: the tab goes to the archive with its restore state saved; its view/process is torn down (media stops).
+  /// A never-used blank tab (about:blank) has nothing to recover, so it is not archived.
   public func closeTab(_ id: TabID) {
-    if let t = tabs[id] { syncOne(id, t); persistState(id, t) }
+    let blank = state.tabs[id]?.url == "about:blank" && (tabs[id]?.currentURL?.absoluteString ?? "about:blank") == "about:blank"
+    if let t = tabs[id] { syncOne(id, t); if !blank { persistState(id, t) } }
     state.closeTab(id)
+    if blank { state.purge(id) }
     commit()                                       // reconcile() sleeps (force) and unregisters the engine tab; visible neighbours come alive
   }
   @discardableResult public func restoreTab(_ id: TabID, confirmedCrossProfile: Bool = false) -> RestoreResult {
@@ -113,7 +116,7 @@ public final class BrowserEngine {
       session.scheduleSave(state)
     }
     session.rotateBackupIfDue()
-    if now.timeIntervalSince(lastPrune) > 3600 { lastPrune = now; pruneBlobs() }
+    if now.timeIntervalSince(lastPrune) > 3600 { lastPrune = now; pruneBlobs(); try? EngineSettings.saveUsage(lifecycle.usage, to: session) }      // learned habits survive a crash too
     return r
   }
   public func startMaintenance(every seconds: TimeInterval = 30) {
@@ -127,7 +130,16 @@ public final class BrowserEngine {
     syncFromTabs()
     for (id, t) in tabs { persistState(id, t) }
     try session.save(state)
+    try? EngineSettings.saveUsage(lifecycle.usage, to: session)             // learned habits survive a restart
     _ = try? session.rotateBackup()
+  }
+
+  // MARK: settings
+  public var policy: PolicyConfig { lifecycle.config }
+  /// Apply and persist the user's hibernation settings (validated: a typo can never hibernate everything).
+  public func updatePolicy(_ cfg: PolicyConfig) throws {
+    lifecycle.config = cfg.validated()
+    try EngineSettings.savePolicy(lifecycle.config, to: session)
   }
 
   // MARK: navigation (address bar, toolbar)
@@ -137,10 +149,9 @@ public final class BrowserEngine {
     t.load(url); lifecycle.activate(id); return true
   }
   /// Reopen the most recently closed tab (the archive is the "recently closed" list).
-  @discardableResult public func reopenLastClosed() -> TabID? {
-    guard let last = state.archive.last else { return nil }
-    if case .restored(let id) = restoreTab(last.id) { return id }
-    return nil
+  @discardableResult public func reopenLastClosed(confirmedCrossProfile: Bool = false) -> RestoreResult {
+    guard let last = state.archive.last else { return .notFound }
+    return restoreTab(last.id, confirmedCrossProfile: confirmedCrossProfile)
   }
   /// Open a link requested by a page next to its source tab and show it in the window that shows the source.
   public func openLink(from source: TabID, url: URL) {

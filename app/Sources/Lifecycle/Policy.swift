@@ -15,6 +15,18 @@ public struct UsageModel: Sendable, Codable {
   public var alpha = 0.3
   public var maxHosts = 1000
   public init() {}
+  public init(from decoder: Decoder) throws {
+    self.init()
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    let lossy = (try? c.decodeIfPresent([String: LossyEntry].self, forKey: .entries)) ?? [:]       // one bad entry must not discard the rest
+    entries = lossy.compactMapValues { $0.value }
+    seq = (try? c.decodeIfPresent(Int.self, forKey: .seq)) ?? 0
+    alpha = (try? c.decodeIfPresent(Double.self, forKey: .alpha)) ?? 0.3
+    maxHosts = max((try? c.decodeIfPresent(Int.self, forKey: .maxHosts)) ?? 1000, 10)
+    entries = entries.filter { $0.value.gap.isFinite && $0.value.gap >= 0 }          // a damaged entry is dropped, not trusted
+  }
+  private struct LossyEntry: Decodable { let value: Entry?; init(from decoder: Decoder) throws { value = try? Entry(from: decoder) } }
+  enum CodingKeys: String, CodingKey { case version, entries, seq, alpha, maxHosts }
   public var gaps: [String: Double] { entries.mapValues(\.gap) }
   private var safeAlpha: Double { alpha.isFinite ? min(max(alpha, 0.01), 1) : 0.3 }
   public mutating func recordReactivation(host: String, idleSeconds: Double) {
@@ -64,6 +76,21 @@ public struct PolicyConfig: Sendable, Codable {
   /// recently used tabs can still be relieved when the Mac is actually struggling.
   public var budgetFloor = PressureTable<TimeInterval>(normal: 300, warning: 120, critical: 30)
   public init() {}
+
+  /// Tolerant decoding: a saved file from an older/newer version (missing or extra keys) never fails and never resets the rest.
+  public init(from decoder: Decoder) throws {
+    self.init()
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    func get<T: Decodable>(_ k: CodingKeys, _ cur: T) -> T { (try? c.decodeIfPresent(T.self, forKey: k)) ?? cur }
+    enabled = get(.enabled, enabled); defaultGrace = get(.defaultGrace, defaultGrace); minGrace = get(.minGrace, minGrace)
+    criticalFloor = get(.criticalFloor, criticalFloor); gapFactor = get(.gapFactor, gapFactor); coldGap = get(.coldGap, coldGap)
+    maxGrace = get(.maxGrace, maxGrace); taperWidth = get(.taperWidth, taperWidth); pinnedMultiplier = get(.pinnedMultiplier, pinnedMultiplier)
+    liveConnectionMultiplier = get(.liveConnectionMultiplier, liveConnectionMultiplier); audibleGrace = get(.audibleGrace, audibleGrace)
+    pressureScale = get(.pressureScale, pressureScale); maxLive = get(.maxLive, maxLive); budgetFloor = get(.budgetFloor, budgetFloor)
+  }
+  enum CodingKeys: String, CodingKey {
+    case enabled, defaultGrace, minGrace, criticalFloor, gapFactor, coldGap, maxGrace, taperWidth, pinnedMultiplier, liveConnectionMultiplier, audibleGrace, pressureScale, maxLive, budgetFloor
+  }
 
   /// Product default for a heavy multi-tab user (tuned on the simulator, see docs/results/policy-sim-*): tabs stay alive long,
   /// habitual tabs longer, pressure still shrinks everything. `init()` stays the neutral base used by unit tests.

@@ -13,6 +13,8 @@ enum MainMenu {
     submenu("Browser") { m in
       add(m, "About Browser", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp)
       m.addItem(.separator())
+      add(m, "Settings…", #selector(AppDelegate.showSettings(_:)), ",")
+      m.addItem(.separator())
       add(m, "Hide Browser", #selector(NSApplication.hide(_:)), "h", target: NSApp)
       add(m, "Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option], target: NSApp)
       m.addItem(.separator())
@@ -52,6 +54,7 @@ enum MainMenu {
       add(m, "Sleep Other Tabs", #selector(AppDelegate.sleepOtherTabs(_:)))
       add(m, "Memory & Tabs…", #selector(AppDelegate.showResources(_:)))
     }
+    submenu("Spaces") { m in m.delegate = target; m.addItem(withTitle: "(none)", action: nil, keyEquivalent: "") }
     submenu("Window") { m in
       add(m, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: nil)
       add(m, "Zoom", #selector(NSWindow.performZoom(_:)), target: nil)

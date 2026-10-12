@@ -8,11 +8,14 @@ import Persistence
 import Resources
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
   var engine: BrowserEngine!
   var session: SessionManager!
   var factory: WebKitTabFactory!
   var controllers: [WindowID: BrowserWindowController] = [:]
+  private var recentWindows: [WindowID] = []       // most recently key/shown first
+  private var finishedDownloads = 0
+  private var settings: SettingsWindowController?
   private var pressure: PressureMonitor?
   private(set) var recovery: SessionManager.Recovery = .clean
   private(set) var dataDirForTests: URL = URL(fileURLWithPath: "/")
@@ -27,9 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     bootstrapIfEmpty()
     syncWindows()
     startServices()
-    if case .clean = recovery {} else { announceRecovery() }
-    if let base = selfTestBase { Task { @MainActor in await SelfTest(app: self, base: base).run() } }
-    NSApp.activate(ignoringOtherApps: true)
+    if !isSelfTest { if case .clean = recovery {} else { announceRecovery() } }
+    if let base = selfTestBase { Task { @MainActor in await SelfTest(app: self, base: base).run() } } else { NSApp.activate(ignoringOtherApps: true) }
   }
 
   // MARK: stack
@@ -38,12 +40,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       ? FileManager.default.temporaryDirectory.appendingPathComponent("browser-selftest-\(UUID().uuidString)")
       : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Browser"))
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    chmod(dir.path, 0o700)                         // also tighten a directory that already existed
     dataDirForTests = dir
     let (s, state, rec) = try SessionManager.start(path: dir.appendingPathComponent("session.sqlite").path)
     session = s; recovery = rec
     factory = WebKitTabFactory(persistent: !isSelfTest)
     factory.externalOpenHandler = { NSWorkspace.shared.open($0) }
-    let life = LifecycleManager(config: .relaxed, pressure: { [weak self] in self?.pressure?.level ?? .normal })
+    let life = LifecycleManager(config: EngineSettings.loadPolicy(from: session), usage: EngineSettings.loadUsage(from: session), pressure: { [weak self] in self?.pressure?.level ?? .normal })
     engine = BrowserEngine(session: session, state: state, factory: factory, lifecycle: life)
     engine.onChange = { [weak self] in self?.syncWindows() }
     factory.downloads.onChange = { [weak self] in self?.downloadsChanged() }
@@ -65,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     let sp = engine.addSpace(name: "Main", profile: ProfileID())
     let w = engine.openWindow(space: sp)!
-    _ = engine.newTab(in: sp, url: "https://duckduckgo.com", window: w)
+    _ = engine.newTab(in: sp, url: isSelfTest ? "about:blank" : "https://duckduckgo.com", window: w)
   }
 
   // MARK: windows
@@ -77,10 +80,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     controllers.values.forEach { $0.refresh() }
   }
   func controller(for window: NSWindow?) -> BrowserWindowController? { controllers.values.first { $0.window === window } }
-  var keyController: BrowserWindowController? { controller(for: NSApp.keyWindow) ?? controllers.values.first }
+  /// The window an action applies to: key window, else main window, else the last one that was key (never an arbitrary one).
+  var keyController: BrowserWindowController? {
+    controller(for: NSApp.keyWindow) ?? controller(for: NSApp.mainWindow) ?? recentWindows.lazy.compactMap { self.controllers[$0] }.first ?? controllers.values.sorted { $0.id.raw.uuidString < $1.id.raw.uuidString }.first
+  }
+  func noteKey(_ id: WindowID) { recentWindows.removeAll { $0 == id }; recentWindows.insert(id, at: 0); if recentWindows.count > 32 { recentWindows.removeLast() } }
 
   func downloadsChanged() {
-    if factory.downloads.items.values.contains(where: { if case .finished = $0.state { return true }; return false }) { NSApp.requestUserAttention(.informationalRequest) }
+    let done = factory.downloads.items.values.filter { if case .finished = $0.state { return true }; return false }.count
+    if done > finishedDownloads { NSApp.requestUserAttention(.informationalRequest) }          // only for NEWLY finished downloads
+    finishedDownloads = done
   }
 
   private func announceRecovery() {
@@ -98,10 +107,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   // MARK: menu actions (targets are nil-targeted or this delegate)
-  @objc func newTab(_ s: Any?) { keyController?.newTab() }
+  @objc func newTab(_ s: Any?) {
+    if let c = keyController { c.newTab() }
+    else if let sp = engine.state.spaces.first, let w = engine.openWindow(space: sp.id) { _ = engine.newTab(in: sp.id, url: "about:blank", window: w); controllers[w]?.focusAddress() }   // no window open: make one
+  }
   @objc func closeTab(_ s: Any?) { keyController?.closeSelectedTab() }
   @objc func reopenClosedTab(_ s: Any?) { keyController?.reopenClosedTab() }
-  @objc func newWindow(_ s: Any?) { keyController?.newWindow() }
+  @objc func newWindow(_ s: Any?) { if let c = keyController { c.newWindow() } else if let sp = engine.state.spaces.first { _ = engine.openWindow(space: sp.id) } }
   @objc func closeWindow(_ s: Any?) { NSApp.keyWindow?.performClose(nil) }
   @objc func focusAddress(_ s: Any?) { keyController?.focusAddress() }
   @objc func reloadPage(_ s: Any?) { keyController?.reload() }
@@ -114,17 +126,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   @objc func newSpace(_ s: Any?) { keyController?.newSpacePrompt() }
   @objc func switchSpace(_ s: NSMenuItem) { keyController?.switchSpace(index: s.tag) }
   @objc func sleepOtherTabs(_ s: Any?) { keyController?.sleepOthers() }
+  @objc func showSettings(_ s: Any?) { settingsController.show() }
+  var settingsController: SettingsWindowController { if settings == nil { settings = SettingsWindowController(app: self) }; return settings! }
   @objc func showDownloads(_ s: Any?) { NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]) }
   @objc func showResources(_ s: Any?) { keyController?.showResourceSummary() }
 
+  // MARK: menus
+  /// The Spaces menu lists the current spaces (⌃1…⌃9 switch).
+  func menuNeedsUpdate(_ menu: NSMenu) {
+    guard menu.title == "Spaces" else { return }
+    menu.removeAllItems()
+    for (i, sp) in engine.state.spaces.enumerated() {
+      let it = NSMenuItem(title: sp.name, action: #selector(switchSpace(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : ""); it.keyEquivalentModifierMask = .control
+      it.tag = i; it.target = self; it.state = keyController?.space == sp.id ? .on : .off; menu.addItem(it)
+    }
+    menu.addItem(.separator()); let n = NSMenuItem(title: "New Space…", action: #selector(newSpace(_:)), keyEquivalent: ""); n.target = self; menu.addItem(n)
+  }
+  func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    guard let c = keyController, let t = c.selected.flatMap({ engine.tab($0) }) else {
+      return [#selector(newTab(_:)), #selector(newWindow(_:)), #selector(newSpace(_:)), #selector(showDownloads(_:)), #selector(closeWindow(_:))].contains(item.action!) || item.action == #selector(switchSpace(_:))
+    }
+    switch item.action {
+    case #selector(goBack(_:)): return t.canGoBack
+    case #selector(goForward(_:)): return t.canGoForward
+    case #selector(stopPage(_:)): return t.isLoadingPage
+    case #selector(reopenClosedTab(_:)): return !engine.state.archive.isEmpty
+    default: return true
+    }
+  }
+
   // MARK: quit
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    guard let engine else { return .terminateNow }                 // startup failed before the engine existed: nothing to save
     engine.stopMaintenance()
     do { try engine.shutdown() } catch {
       let a = NSAlert(); a.alertStyle = .critical; a.messageText = "Couldn't save your session"
       a.informativeText = "\(error)\n\nQuitting now may lose your latest tab changes."
       a.addButton(withTitle: "Cancel"); a.addButton(withTitle: "Quit Anyway")
-      if a.runModal() == .alertFirstButtonReturn { return .terminateCancel }
+      if a.runModal() == .alertFirstButtonReturn { engine.startMaintenance(every: 30); return .terminateCancel }       // keep hibernation/backups running
     }
     return .terminateNow
   }

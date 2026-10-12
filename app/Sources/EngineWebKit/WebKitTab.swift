@@ -81,7 +81,12 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
 
   public var isLive: Bool { webView != nil }
   @discardableResult public func ensureLiveView() -> Bool { let was = webView == nil; ensureLive(); return was }
-  public func load(_ u: URL) { url = u; ensureLive().load(URLRequest(url: u)) }
+  public func load(_ u: URL) {
+    let wasLive = webView != nil
+    url = u
+    let w = ensureLive()                              // a fresh view with no saved state already starts loading `url`
+    if wasLive || restoredFromState { w.load(URLRequest(url: u)) }
+  }
   public func goBack() { webView?.goBack() }
   public func goForward() { webView?.goForward() }
   public func reload() { if let w = webView { if w.url != nil { w.reload() } else if let u = url { w.load(URLRequest(url: u)) } } }

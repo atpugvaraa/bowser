@@ -30,15 +30,16 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     super.init()
     window.delegate = self; window.isReleasedWhenClosed = false; window.tabbingMode = .disallowed
-    window.minSize = NSSize(width: 700, height: 420); window.setFrameAutosaveName("BrowserWindow-\(id.raw.uuidString)")
+    window.minSize = NSSize(width: 700, height: 420)
     buildUI()
   }
 
   func show() {
-    if !window.setFrameUsingName("BrowserWindow-\(id.raw.uuidString)") { window.center(); let n = app.controllers.count; window.setFrameTopLeftPoint(NSPoint(x: 80 + 28 * n, y: 700 - 28 * n)) }
-    window.makeKeyAndOrderFront(nil)
+    window.center(); let n = max(app.controllers.count - 1, 0); window.setFrameTopLeftPoint(NSPoint(x: 80 + 28 * n, y: 760 - 28 * n))
+    app.noteKey(id)                                  // the newest window is the fallback action target when no window is key
+    if app.isSelfTest { window.orderFrontRegardless() } else { window.makeKeyAndOrderFront(nil) }       // the unattended self-test must not steal focus
   }
-  func closeFromEngine() { closingFromEngine = true; window.close() }
+  func closeFromEngine() { if !closingFromEngine { closingFromEngine = true; window.close() } }
 
   // MARK: UI construction
   private func buildUI() {
@@ -98,16 +99,24 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     return URL(string: r.url)?.host ?? r.url
   }
 
+  private var spaceSignature = "", rowSignature = ""
   func refresh() {
     guard let w = engine.state.windows[id], let sp = engine.state.space(w.space) else { return }
-    spacePopup.removeAllItems()
-    for (i, s) in engine.state.spaces.enumerated() { spacePopup.addItem(withTitle: s.name); spacePopup.lastItem?.tag = i }
-    if let i = engine.state.spaces.firstIndex(where: { $0.id == sp.id }) { spacePopup.selectItem(at: i) }
+    // Rebuild the popup / table only when their content changed: an open popup or context menu must not be rebuilt under the user.
+    let sSig = engine.state.spaces.map { "\($0.id.raw)\($0.name)" }.joined() + "|\(sp.id.raw)"
+    if sSig != spaceSignature {
+      spaceSignature = sSig; spacePopup.removeAllItems()
+      for (i, s) in engine.state.spaces.enumerated() { spacePopup.addItem(withTitle: s.name); spacePopup.lastItem?.tag = i }
+      if let i = engine.state.spaces.firstIndex(where: { $0.id == sp.id }) { spacePopup.selectItem(at: i) }
+    }
     rows = sp.tabOrder
-    updatingSelection = true
-    table.reloadData()
-    if let s = w.selected, let r = rows.firstIndex(of: s) { table.selectRowIndexes([r], byExtendingSelection: false) } else { table.deselectAll(nil) }
-    updatingSelection = false
+    let rSig = rows.map { "\($0.raw)|\(title(for: $0))|\(engine.tab($0)?.isLive ?? false)" }.joined(separator: "\n") + "#\(w.selected?.raw.uuidString ?? "")"
+    if rSig != rowSignature {
+      rowSignature = rSig; updatingSelection = true
+      table.reloadData()
+      if let s = w.selected, let r = rows.firstIndex(of: s) { table.selectRowIndexes([r], byExtendingSelection: false) } else { table.deselectAll(nil) }
+      updatingSelection = false
+    }
     attachSelected()
     let t = w.selected.flatMap { engine.tab($0) }
     window.title = w.selected.map(title(for:)) ?? "Browser"
@@ -183,7 +192,17 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     let sp = space; engine.closeTab(t)
     if let sp, engine.state.space(sp)?.tabOrder.isEmpty == true { newTab() }       // a window never ends up with nothing to show
   }
-  func reopenClosedTab() { if let t = engine.reopenLastClosed() { selectTab(t) } }
+  func reopenClosedTab() {
+    switch engine.reopenLastClosed() {
+    case .restored(let t): selectTab(t)
+    case .needsProfileConfirmation:
+      let al = NSAlert(); al.alertStyle = .warning; al.messageText = "Reopen in a different profile?"
+      al.informativeText = "The space this tab was closed in no longer exists. Reopening it here signs it in as a different profile (separate logins and cookies)."
+      al.addButton(withTitle: "Reopen"); al.addButton(withTitle: "Cancel")
+      if al.runModal() == .alertFirstButtonReturn, case .restored(let t) = engine.reopenLastClosed(confirmedCrossProfile: true) { selectTab(t) }
+    case .notFound: NSSound.beep()
+    }
+  }
   func newWindow() { if let sp = space { _ = engine.openWindow(space: sp) } }
   func focusAddress() { window.makeFirstResponder(addressField); addressField.selectText(nil) }
   func reload() { if let s = selected { (engine.tab(s))?.reload() } }
@@ -238,7 +257,17 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   // MARK: address bar
   func submitAddress() {
     guard let s = selected else { return }
-    if engine.navigate(tab: s, input: addressField.stringValue) { window.makeFirstResponder(engine.tab(s).flatMap { ($0 as? WebKitTab)?.webView }) } else { NSSound.beep() }
+    if engine.navigate(tab: s, input: addressField.stringValue) {
+      addressField.textColor = .labelColor; window.makeFirstResponder(engine.tab(s).flatMap { ($0 as? WebKitTab)?.webView })
+    } else {                                                        // refused (javascript:, file:, ...): visible, not just a beep
+      addressField.textColor = .systemRed; addressField.toolTip = "This kind of address can't be opened from the address bar."; NSSound.beep()
+    }
+  }
+  func controlTextDidChange(_ n: Notification) { addressField.textColor = .labelColor; addressField.toolTip = nil }
+  /// Leaving the field without pressing Return must not leave typed text that looks like the page's address (spoofing).
+  func controlTextDidEndEditing(_ n: Notification) {
+    if (n.userInfo?["NSTextMovement"] as? Int) == NSReturnTextMovement { return }
+    addressField.stringValue = displayURL(selected); addressField.textColor = .labelColor
   }
   func control(_ c: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
     if sel == #selector(NSResponder.insertNewline(_:)) { submitAddress(); return true }
@@ -275,6 +304,10 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   }
 
   // MARK: window delegate
-  func windowWillClose(_ n: Notification) { if !closingFromEngine { engine.closeWindow(id) } }
-  func windowDidBecomeKey(_ n: Notification) { if let s = selected { engine.lifecycle.activate(s) } }
+  func windowWillClose(_ n: Notification) {
+    guard !closingFromEngine else { return }
+    closingFromEngine = true                      // we are handling this close ourselves: no re-entrant window.close() from syncWindows
+    engine.closeWindow(id); app.controllers[id] = nil
+  }
+  func windowDidBecomeKey(_ n: Notification) { app.noteKey(id); if let s = selected { engine.lifecycle.activate(s) } }
 }

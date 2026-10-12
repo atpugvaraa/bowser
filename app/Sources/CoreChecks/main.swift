@@ -804,12 +804,38 @@ do {
   check(opened != nil && opened?.space == sp && en.state.windows[wd]?.selected == opened?.id, "page link (target=_blank) opens a tab in the same space and shows it")
   // reopen last closed
   if let o = opened { en.closeTab(o.id) }
-  let back = en.reopenLastClosed(); check(back != nil && en.state.tabs[back!]?.url == "https://popup.example/x", "reopen last closed restores the tab")
-  check(en.reopenLastClosed() == nil, "reopen with an empty archive is a no-op")
+  let back = en.reopenLastClosed(); var backID: TabID? = nil; if case .restored(let i) = back { backID = i }
+  check(backID != nil && en.state.tabs[backID!]?.url == "https://popup.example/x", "reopen last closed restores the tab")
+  check(en.reopenLastClosed() == .notFound, "reopen with an empty archive is a no-op")
+  let blankT = en.newTab(in: sp, url: "about:blank", window: wd)!; let archBefore = en.state.archive.count
+  en.closeTab(blankT); check(en.state.archive.count == archBefore && en.state.tabs[blankT] == nil, "closing a never-used blank tab does not fill the archive")
   // tab state changes flow into the model + notify the UI
   var notified = 0; en.onChange = { notified += 1 }
   ff.made[t1]!.url = URL(string: "https://example.com/page2"); ff.made[t1]!.title = "Page 2"; ff.made[t1]!.onChange?()
   check(en.state.tabs[t1]?.url == "https://example.com/page2" && en.state.tabs[t1]?.title == "Page 2" && notified == 1, "tab navigation updates the saved model and notifies the UI")
+}
+// 24. Settings + learned habits persistence
+do {
+  let pp = tmpDB(); let (ses, _, _) = try SessionManager.start(path: pp)
+  check(EngineSettings.loadPolicy(from: ses).defaultGrace == PolicyConfig.relaxed.defaultGrace, "settings: no saved policy -> product default")
+  var mine2 = PolicyConfig.relaxed; mine2.defaultGrace = 5 * 3600; mine2.maxLive = .init(normal: 80, warning: 50, critical: 25); mine2.audibleGrace = 20 * 60
+  try EngineSettings.savePolicy(mine2, to: ses)
+  let back = EngineSettings.loadPolicy(from: ses)
+  check(back.defaultGrace == 5 * 3600 && back.maxLive.normal == 80 && back.audibleGrace == 20 * 60, "settings: user's values persist")
+  // older file without newer keys: tolerated, the rest kept
+  try ses.store.setSetting("policy.v1", Data(#"{"defaultGrace": 7200, "minGrace": 1800}"#.utf8))
+  let old = EngineSettings.loadPolicy(from: ses)
+  check(old.defaultGrace == 7200 && old.minGrace == 1800 && old.coldGap == PolicyConfig().coldGap, "settings: an older saved file with missing keys keeps what it has, defaults the rest")
+  try ses.store.setSetting("policy.v1", Data("not json at all".utf8))
+  check(EngineSettings.loadPolicy(from: ses).defaultGrace == PolicyConfig.relaxed.defaultGrace, "settings: corrupt saved policy falls back to the default (no crash)")
+  try ses.store.setSetting("policy.v1", Data(#"{"defaultGrace": -5, "minGrace": 1e99, "maxLive": {"normal": -1, "warning": 0, "critical": 0}}"#.utf8))
+  let wild = EngineSettings.loadPolicy(from: ses); check(wild.minGrace <= wild.defaultGrace && wild.maxLive.normal >= 1, "settings: absurd saved values are clamped by validation")
+  var um = UsageModel(); for _ in 0..<4 { um.recordReactivation(host: "docs.example", idleSeconds: 900) }
+  try EngineSettings.saveUsage(um, to: ses)
+  check(EngineSettings.loadUsage(from: ses).expectedGap(host: "docs.example") == um.expectedGap(host: "docs.example"), "habits: learned gaps persist across restarts")
+  try ses.store.setSetting("usage.v1", Data(#"{"entries": {"a": {"gap": 1e999, "seq": 1}, "b": {"gap": 60, "seq": 2}}}"#.utf8))
+  let ru = EngineSettings.loadUsage(from: ses); check(ru.expectedGap(host: "b") == 60, "habits: a damaged entry is dropped, valid ones kept")
+  try ses.store.setSetting("usage.v1", Data("garbage".utf8)); check(EngineSettings.loadUsage(from: ses).gaps.isEmpty, "habits: corrupt saved model -> empty model (no crash)")
 }
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)
