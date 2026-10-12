@@ -1,0 +1,1 @@
+chrome.runtime.onMessage.addListener((m, s, reply) => { chrome.storage.local.set({k: m}).then(() => reply({pong: m, api: typeof chrome.tabs + "/" + typeof chrome.webNavigation + "/" + typeof chrome.declarativeNetRequest})); return true; });

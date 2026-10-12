@@ -1,0 +1,8 @@
+.build/
+*.app/
+spikes/**/.build/
+.DS_Store
+*.ips
+spikes/**/result-*.json
+spikes/**/.srv.pid
+spikes/**/out.txt

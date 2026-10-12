@@ -1,0 +1,32 @@
+{
+ "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+ "eme": {
+  "com.apple.fps": "NO NotSupportedError",
+  "com.apple.fps.1_0": "NO NotSupportedError",
+  "com.apple.fps.2_0": "NO NotSupportedError",
+  "com.apple.fps.3_0": "NO NotSupportedError",
+  "com.widevine.alpha": "NO NotSupportedError",
+  "com.microsoft.playready": "NO NotSupportedError"
+ },
+ "mc": {
+  "hevc4k": "sup=true smooth=true eff=true",
+  "hevc4k_hdr10": "sup=true smooth=true eff=true",
+  "dv": "sup=false smooth=false eff=false",
+  "av1_4k": "sup=true smooth=true eff=true",
+  "vp9_4k": "sup=true smooth=true eff=true",
+  "h264_1080": "sup=true smooth=true eff=true"
+ },
+ "screen": {
+  "w": 1800,
+  "h": 1169,
+  "dpr": 2,
+  "hdr": true,
+  "p3": true
+ },
+ "misc": {
+  "pip": true,
+  "webcodecs": "function",
+  "mse": "function",
+  "managedMSE": "undefined"
+ }
+}

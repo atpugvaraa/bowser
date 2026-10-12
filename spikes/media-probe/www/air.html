@@ -1,0 +1,8 @@
+<!doctype html><meta charset=utf-8><body><video id=v></video><script>
+(async()=>{const v=document.getElementById('v');const r={
+ showPicker: typeof v.webkitShowPlaybackTargetPicker,
+ availEvent: typeof window.WebKitPlaybackTargetAvailabilityEvent,
+ remotePlayback: typeof v.remote, airplayAttr:'x-webkit-airplay' in v||v.hasAttribute('x-webkit-airplay'),
+ presentation: typeof navigator.presentation, castApi: typeof window.chrome};
+await fetch('/result?name=air-'+(location.hash.slice(1)||'x'),{method:'POST',body:JSON.stringify(r)});})();
+</script>
