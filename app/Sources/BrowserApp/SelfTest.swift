@@ -63,6 +63,17 @@ struct SelfTest {
     c1.addressField.stringValue = "\(base)/b.html"; c1.submitAddress()
     check(await wait(15) { c1.rowTitles.contains("Page B") }, "second tab navigates; sidebar shows both titles \(c1.rowTitles)")
 
+    // 3b. page features through the real menus: zoom, find, print wiring, fullscreen preference, inspector
+    let z0 = c1.currentZoom
+    check(choose("Zoom In") && c1.currentZoom > z0, "⌘+ (menu): zoom in (\(String(format: "%.2f", c1.currentZoom)))")
+    check(choose("Zoom Out") && abs(c1.currentZoom - z0) < 0.001, "⌘− (menu): zoom out returns to the start")
+    c1.zoom(by: 1.1); check(choose("Actual Size") && c1.currentZoom == 1, "⌘0 (menu): actual size")
+    check(menuItem("Find…")?.keyEquivalent == "f" && menuItem("Find Next")?.keyEquivalent == "g" && menuItem("Print…")?.keyEquivalent == "p", "menu: Find (⌘F ⌘G) and Print (⌘P) are bound")
+    let wv = (e.tab(c1.selected!) as? WebKitTab)?.webView
+    check(wv?.configuration.preferences.isElementFullscreenEnabled == true, "video: element fullscreen is enabled (the player's fullscreen button works)")
+    check(wv?.isInspectable == true, "devtools: Web Inspector is available for tabs (Safari ▸ Develop)")
+    check(WebKitTab.missingDelegateMethods().isEmpty, "all WebKit delegate methods (incl. JS dialogs, file upload) are implemented under real selector names: \(WebKitTab.missingDelegateMethods())")
+
     // 4. tab switching (menu + number)
     c1.selectTab(number: 1); await settle(); check(c1.window.title == "Page A", "⌘1 selects the first tab")
     check(choose("Next Tab"), "menu: Next Tab"); await settle(); check(c1.window.title == "Page B", "⌃Tab (menu) selects the next tab")

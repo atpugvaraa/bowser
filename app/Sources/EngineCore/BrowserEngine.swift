@@ -9,6 +9,7 @@ public protocol TabFactory: AnyObject {
   func makeTab(id: TabID, url: URL?, profile: ProfileID, restoredState: Data?) -> any EngineTab
   /// A page asked to open `url` in a new tab (window.open / target=_blank). The engine opens it next to the source tab.
   var linkOpenHandler: ((_ from: TabID, _ url: URL) -> Void)? { get set }
+  var closeRequestHandler: ((TabID) -> Void)? { get set }
 }
 
 /// The core engine facade a UI talks to. Owns the model, the session store, the lifecycle manager and the engine tabs, and keeps
@@ -32,6 +33,7 @@ public final class BrowserEngine {
   public init(session: SessionManager, state: BrowserState, factory: TabFactory, lifecycle: LifecycleManager = LifecycleManager()) {
     self.session = session; self.state = state; self.factory = factory; self.lifecycle = lifecycle
     factory.linkOpenHandler = { [weak self] from, url in self?.openLink(from: from, url: url) }
+    factory.closeRequestHandler = { [weak self] id in self?.closeTab(id) }
     reconcile()
     syncVisible()                                  // lazy launch: only tabs selected in some window come alive
   }

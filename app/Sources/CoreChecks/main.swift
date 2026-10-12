@@ -608,6 +608,7 @@ do {
 }
 @MainActor final class FFactory: TabFactory {
   var linkOpenHandler: ((TabID, URL) -> Void)?
+  var closeRequestHandler: ((TabID) -> Void)?
   var made: [TabID: FTab] = [:]; var creations = 0; var profiles: [TabID: [ProfileID]] = [:]
   func makeTab(id: TabID, url: URL?, profile: ProfileID, restoredState: Data?) -> any EngineTab { creations += 1; let t = FTab(id: id, url: url, restored: restoredState); made[id] = t; profiles[id, default: []].append(profile); return t }
 }
@@ -918,6 +919,15 @@ do {
   check(ordered.validated().neverSleepHosts == ["z.example", "a.example", "m.example"], "list: order kept, duplicates removed")
   var big = PolicyConfig.relaxed; big.neverSleepHosts = (0..<300).map { "h\($0).example" }
   check(big.validated().neverSleepHosts.count == 200 && big.validated().neverSleepHosts.first == "h0.example", "list: capped at 200, keeping the FIRST ones the user typed")
+}
+// 28. Dialog throttle
+do {
+  var d = DialogThrottle(); let t0 = Date(timeIntervalSince1970: 1_000_000)
+  check(!d.shouldOfferSuppress(now: t0), "dialogs: the first dialogs carry no suppress option")
+  for i in 0..<3 { d.recordShown(now: t0.addingTimeInterval(Double(i))) }
+  check(d.shouldOfferSuppress(now: t0.addingTimeInterval(3)), "dialogs: the 4th within 10 s offers 'stop showing dialogs'")
+  check(!d.shouldOfferSuppress(now: t0.addingTimeInterval(30)), "dialogs: the offer disappears once the burst is over")
+  d.suppress(); check(d.suppressed, "dialogs: suppression sticks for the page"); d.reset(); check(!d.suppressed && !d.shouldOfferSuppress(now: t0.addingTimeInterval(3)), "dialogs: a new page load gets a clean slate")
 }
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

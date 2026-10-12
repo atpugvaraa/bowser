@@ -41,6 +41,9 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
   public private(set) var progress: Double = 0
   public private(set) var isLoadingPage = false
   private var observers: [NSKeyValueObservation] = []
+  /// A page that opened itself (window.open) asked to close itself (window.close()): the engine closes the tab.
+  public var onPageRequestedClose: (() -> Void)?
+  private var dialogs = DialogThrottle()
   private let configuration: WKWebViewConfiguration
   private var savedState: Data?
 
@@ -106,6 +109,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
     let w = WKWebView(frame: .init(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
     w.navigationDelegate = self
     w.uiDelegate = self
+    w.isInspectable = true                           // Web Inspector via Safari's Develop menu (devtools requirement); local user only
     webView = w
     observe(w)
     DirtyTracker.shared.forget(w)                    // a recycled object address must not inherit another view's state
@@ -172,6 +176,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
   }
 
   // MARK: WKNavigationDelegate
+  public func webView(_ w: WKWebView, didCommit n: WKNavigation!) { dialogs.reset() }
   public func webView(_ w: WKWebView, didFinish n: WKNavigation!) { url = w.url ?? url; title = w.title ?? title; onChange?() }
   public func webViewWebContentProcessDidTerminate(_ w: WKWebView) {
     crashCount += 1
@@ -294,6 +299,42 @@ extension WebKitTab {
     return nil
   }
 
+  // JavaScript dialogs: shown as sheets/modals naming the site, throttled against dialog spam.
+  private func host(_ f: WKFrameInfo) -> String { f.securityOrigin.host.isEmpty ? "This page" : f.securityOrigin.host }
+  private func present(_ a: NSAlert, in w: WKWebView, host: String, completion: @escaping @MainActor (NSApplication.ModalResponse, Bool) -> Void) {
+    a.messageText = a.messageText.isEmpty ? "\(host) says" : a.messageText
+    var box: NSButton?
+    if dialogs.shouldOfferSuppress() { let b = NSButton(checkboxWithTitle: "Stop this page from showing more dialogs", target: nil, action: nil); a.accessoryView = b; box = b }
+    dialogs.recordShown()
+    let finish: (NSApplication.ModalResponse) -> Void = { r in MainActor.assumeIsolated { let sup = box?.state == .on; if sup { self.dialogs.suppress() }; completion(r, sup) } }
+    if let win = w.window, win.isVisible { a.beginSheetModal(for: win, completionHandler: finish) } else { finish(a.runModal()) }
+  }
+  public func webView(_ w: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping @MainActor () -> Void) {
+    if dialogs.suppressed { completionHandler(); return }
+    let a = NSAlert(); a.messageText = "\(host(f)) says"; a.informativeText = String(message.prefix(2000)); a.addButton(withTitle: "OK")
+    present(a, in: w, host: host(f)) { _, _ in completionHandler() }
+  }
+  public func webView(_ w: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping @MainActor (Bool) -> Void) {
+    if dialogs.suppressed { completionHandler(false); return }
+    let a = NSAlert(); a.messageText = "\(host(f)) says"; a.informativeText = String(message.prefix(2000)); a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
+    present(a, in: w, host: host(f)) { r, sup in completionHandler(r == .alertFirstButtonReturn && !sup) }
+  }
+  public func webView(_ w: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping @MainActor (String?) -> Void) {
+    if dialogs.suppressed { completionHandler(nil); return }
+    let a = NSAlert(); a.messageText = "\(host(f)) says"; a.informativeText = String(prompt.prefix(2000)); a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
+    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24)); field.stringValue = defaultText ?? ""; a.accessoryView = field
+    present(a, in: w, host: host(f)) { r, sup in completionHandler(r == .alertFirstButtonReturn && !sup ? field.stringValue : nil) }
+  }
+  // File inputs / uploads
+  public func webView(_ w: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping @MainActor ([URL]?) -> Void) {
+    let p = NSOpenPanel(); p.allowsMultipleSelection = parameters.allowsMultipleSelection; p.canChooseDirectories = parameters.allowsDirectories; p.canChooseFiles = true
+    p.message = "\(host(f)) wants to upload files"
+    let done: (NSApplication.ModalResponse) -> Void = { r in MainActor.assumeIsolated { completionHandler(r == .OK ? p.urls : nil) } }
+    if let win = w.window, win.isVisible { p.beginSheetModal(for: win, completionHandler: done) } else { done(p.runModal()) }
+  }
+  /// window.close() from a script-opened page.
+  public func webViewDidClose(_ w: WKWebView) { onPageRequestedClose?() }
+
   // Camera / microphone: deny unless the UI says yes.
   public func webView(_ w: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType, decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void) {
     guard let ask = decideCapture else { decisionHandler(.deny); return }
@@ -312,7 +353,9 @@ extension WebKitTab {
                "webView:navigationAction:didBecomeDownload:", "webView:navigationResponse:didBecomeDownload:",
                "webView:didFailProvisionalNavigation:withError:", "webView:didFailNavigation:withError:", "webView:didFinishNavigation:",
                "webViewWebContentProcessDidTerminate:", "webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:",
-               "webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:"]
+               "webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:",
+               "webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:", "webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:",
+               "webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:", "webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:", "webViewDidClose:", "webView:didCommitNavigation:"]
     let dl = ["download:decideDestinationUsingResponse:suggestedFilename:completionHandler:", "downloadDidFinish:", "download:didFailWithError:resumeData:"]
     return tab.filter { !WebKitTab.instancesRespond(to: Selector($0)) } + dl.filter { !DownloadCoordinator.instancesRespond(to: Selector($0)) }
   }

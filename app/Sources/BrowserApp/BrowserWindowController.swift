@@ -3,6 +3,7 @@ import BrowserCore
 import EngineCore
 import EngineWebKit
 import Foundation
+import WebKit
 
 @MainActor
 final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSMenuDelegate {
@@ -238,6 +239,16 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     let sp = engine.addSpace(name: name, profile: separateProfile ? ProfileID() : cur.profile)
     engine.switchSpace(window: id, to: sp)
     newTab(); return sp
+  }
+
+  private var selectedWebView: WKWebView? { selected.flatMap { (engine.tab($0) as? WebKitTab)?.webView } }
+  func zoom(by f: Double) { if let w = selectedWebView { w.pageZoom = min(max(w.pageZoom * f, 0.25), 5) } }
+  func zoomReset() { selectedWebView?.pageZoom = 1 }
+  var currentZoom: Double { Double(selectedWebView?.pageZoom ?? 1) }
+  func printPage() {
+    guard let w = selectedWebView else { return }
+    let op = w.printOperation(with: NSPrintInfo.shared); op.view?.frame = w.bounds
+    op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
   }
 
   func sleepOthers() {

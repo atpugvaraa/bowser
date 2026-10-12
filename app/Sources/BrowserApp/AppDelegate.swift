@@ -143,6 +143,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   @objc func newSpace(_ s: Any?) { keyController?.newSpacePrompt() }
   @objc func switchSpace(_ s: NSMenuItem) { keyController?.switchSpace(index: s.tag) }
   @objc func sleepOtherTabs(_ s: Any?) { keyController?.sleepOthers() }
+  @objc func zoomIn(_ s: Any?) { keyController?.zoom(by: 1.1) }
+  @objc func zoomOut(_ s: Any?) { keyController?.zoom(by: 1 / 1.1) }
+  @objc func zoomReset(_ s: Any?) { keyController?.zoomReset() }
+  @objc func printPage(_ s: Any?) { keyController?.printPage() }
   @objc func showSettings(_ s: Any?) { settingsController.show() }
   var settingsController: SettingsWindowController { if settings == nil { settings = SettingsWindowController(app: self) }; return settings! }
   @objc func showDownloads(_ s: Any?) { NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]) }
