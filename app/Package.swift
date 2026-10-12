@@ -15,6 +15,7 @@ let package = Package(
     .target(name: "EngineCore", dependencies: ["BrowserCore", "Lifecycle", "Persistence"]),
     .target(name: "ContentBlocking"),
     .executableTarget(name: "EngineStress", dependencies: ["BrowserCore", "Lifecycle", "EngineWebKit", "EngineCore", "Persistence", "ContentBlocking"]),
+    .executableTarget(name: "BrowserApp", dependencies: ["BrowserCore", "Lifecycle", "Persistence", "Resources", "EngineCore", "EngineWebKit", "ContentBlocking"], swiftSettings: [.swiftLanguageMode(.v5)]),
     .executableTarget(name: "PolicySim", dependencies: ["BrowserCore", "Lifecycle"]),
     .executableTarget(name: "EngineScale", dependencies: ["BrowserCore", "Lifecycle", "EngineWebKit", "Persistence", "Resources"]),
     .executableTarget(name: "CoreChecks", dependencies: ["BrowserCore", "Lifecycle", "Persistence", "Resources", "EngineCore"]),

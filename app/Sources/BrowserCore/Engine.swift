@@ -23,4 +23,14 @@ public protocol EngineTab: AnyObject {
   func captureState() -> Data?                       // opaque restore state (history + scroll) of the current page, live or hibernated
   var currentURL: URL? { get }
   var currentTitle: String? { get }
+  var onChange: (() -> Void)? { get set }            // title/url/loading/history state changed (engine forwards to the UI and saves)
+  var canGoBack: Bool { get }
+  var canGoForward: Bool { get }
+  var isLoadingPage: Bool { get }
+  var progress: Double { get }
+  func load(_ url: URL)
+  func goBack()
+  func goForward()
+  func reload()
+  func stopLoading()
 }

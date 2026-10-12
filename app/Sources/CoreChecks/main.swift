@@ -473,6 +473,17 @@ do {
   func captureState() -> Data? { nil }
   var currentURL: URL? { nil }
   var currentTitle: String? { nil }
+  var onChange: (() -> Void)?
+  var canGoBack: Bool { false }
+  var canGoForward: Bool { false }
+  var isLoadingPage: Bool { false }
+  var progress: Double { 0 }
+  func load(_ url: URL) { loaded.append(url) }
+  var loaded: [URL] = []
+  func goBack() {}
+  func goForward() {}
+  func reload() {}
+  func stopLoading() {}
 }
 do {
   @MainActor func world(pressure: @escaping () -> PressureLevel = { .normal }, config: PolicyConfig = .relaxed) -> (LifecycleManager, () -> Date, (TimeInterval) -> Void) {
@@ -582,8 +593,20 @@ do {
   var currentURL: URL? { url }
   var title: String?
   var currentTitle: String? { title }
+  var onChange: (() -> Void)?
+  var canGoBack: Bool { false }
+  var canGoForward: Bool { false }
+  var isLoadingPage: Bool { false }
+  var progress: Double { 0 }
+  func load(_ url: URL) { loaded.append(url) }
+  var loaded: [URL] = []
+  func goBack() {}
+  func goForward() {}
+  func reload() {}
+  func stopLoading() {}
 }
 @MainActor final class FFactory: TabFactory {
+  var linkOpenHandler: ((TabID, URL) -> Void)?
   var made: [TabID: FTab] = [:]; var creations = 0; var profiles: [TabID: [ProfileID]] = [:]
   func makeTab(id: TabID, url: URL?, profile: ProfileID, restoredState: Data?) -> any EngineTab { creations += 1; let t = FTab(id: id, url: url, restored: restoredState); made[id] = t; profiles[id, default: []].append(profile); return t }
 }
@@ -765,6 +788,28 @@ do {
   check(cert.isCertificate && cert.message.contains("no way to continue"), "error page: untrusted certificate has no bypass wording")
   check(ErrorPage.describe(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet).title == "You're offline", "error page: offline message")
   check(!ErrorPage.describe(domain: "Other", code: 1).isCertificate, "error page: unknown errors are generic")
+}
+// 23. Engine navigation API
+do {
+  let np = tmpDB(); let (sn, s0, _) = try SessionManager.start(path: np, debounce: 0.05)
+  let ff = FFactory(); let en = BrowserEngine(session: sn, state: s0, factory: ff)
+  let sp = en.addSpace(name: "N", profile: ProfileID()); let wd = en.openWindow(space: sp)!
+  let t1 = en.newTab(in: sp, url: "https://start.example", window: wd)!
+  check(en.navigate(tab: t1, input: "example.com") && ff.made[t1]!.loaded == [URL(string: "https://example.com")!], "engine.navigate: typed domain loads https")
+  check(!en.navigate(tab: t1, input: "javascript:alert(1)") && !en.navigate(tab: t1, input: "file:///etc/passwd") && ff.made[t1]!.loaded.count == 1, "engine.navigate: javascript:/file: typed input refused, nothing loaded")
+  check(en.navigate(tab: t1, input: "swift actors") && ff.made[t1]!.loaded.last?.host == "duckduckgo.com", "engine.navigate: words become a search")
+  // page-requested link opens a new tab next to the source, selected in the window showing the source
+  ff.linkOpenHandler?(t1, URL(string: "https://popup.example/x")!)
+  let opened = en.state.tabs.values.first { $0.url == "https://popup.example/x" }
+  check(opened != nil && opened?.space == sp && en.state.windows[wd]?.selected == opened?.id, "page link (target=_blank) opens a tab in the same space and shows it")
+  // reopen last closed
+  if let o = opened { en.closeTab(o.id) }
+  let back = en.reopenLastClosed(); check(back != nil && en.state.tabs[back!]?.url == "https://popup.example/x", "reopen last closed restores the tab")
+  check(en.reopenLastClosed() == nil, "reopen with an empty archive is a no-op")
+  // tab state changes flow into the model + notify the UI
+  var notified = 0; en.onChange = { notified += 1 }
+  ff.made[t1]!.url = URL(string: "https://example.com/page2"); ff.made[t1]!.title = "Page 2"; ff.made[t1]!.onChange?()
+  check(en.state.tabs[t1]?.url == "https://example.com/page2" && en.state.tabs[t1]?.title == "Page 2" && notified == 1, "tab navigation updates the saved model and notifies the UI")
 }
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

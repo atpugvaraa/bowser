@@ -5,8 +5,10 @@ import Persistence
 
 /// Creates engine tabs (WebKit in the app, fakes in tests). Tabs must start HIBERNATED (no view/process) until ensureLiveView().
 @MainActor
-public protocol TabFactory {
+public protocol TabFactory: AnyObject {
   func makeTab(id: TabID, url: URL?, profile: ProfileID, restoredState: Data?) -> any EngineTab
+  /// A page asked to open `url` in a new tab (window.open / target=_blank). The engine opens it next to the source tab.
+  var linkOpenHandler: ((_ from: TabID, _ url: URL) -> Void)? { get set }
 }
 
 /// The core engine facade a UI talks to. Owns the model, the session store, the lifecycle manager and the engine tabs, and keeps
@@ -29,6 +31,7 @@ public final class BrowserEngine {
 
   public init(session: SessionManager, state: BrowserState, factory: TabFactory, lifecycle: LifecycleManager = LifecycleManager()) {
     self.session = session; self.state = state; self.factory = factory; self.lifecycle = lifecycle
+    factory.linkOpenHandler = { [weak self] from, url in self?.openLink(from: from, url: url) }
     reconcile()
     syncVisible()                                  // lazy launch: only tabs selected in some window come alive
   }
@@ -127,6 +130,29 @@ public final class BrowserEngine {
     _ = try? session.rotateBackup()
   }
 
+  // MARK: navigation (address bar, toolbar)
+  /// What the user typed in the address bar. Returns false if the input was refused (e.g. javascript:, file:).
+  @discardableResult public func navigate(tab id: TabID, input: String, searchTemplate: String = URLInput.defaultSearch) -> Bool {
+    guard let t = tabs[id], let url = URLInput.resolve(input, searchTemplate: searchTemplate) else { return false }
+    t.load(url); lifecycle.activate(id); return true
+  }
+  /// Reopen the most recently closed tab (the archive is the "recently closed" list).
+  @discardableResult public func reopenLastClosed() -> TabID? {
+    guard let last = state.archive.last else { return nil }
+    if case .restored(let id) = restoreTab(last.id) { return id }
+    return nil
+  }
+  /// Open a link requested by a page next to its source tab and show it in the window that shows the source.
+  public func openLink(from source: TabID, url: URL) {
+    guard let rec = state.tabs[source], let space = state.space(rec.space) else { return }
+    let window = state.windows.values.first { $0.selected == source }?.id
+    _ = newTab(in: space.id, url: url.absoluteString, window: window)
+  }
+  private func tabChanged(_ id: TabID) {
+    guard let t = tabs[id] else { return }
+    syncOne(id, t); session.scheduleSave(state); onChange?()
+  }
+
   // MARK: internals
   private func commit() { reconcile(); syncVisible(); syncFromTabs(); session.scheduleSave(state); onChange?() }
   private func persistState(_ id: TabID, _ t: any EngineTab) {
@@ -162,6 +188,7 @@ public final class BrowserEngine {
       if blob.failed { unreadBlobs.insert(id) } else { unreadBlobs.remove(id) }
       let t = factory.makeTab(id: id, url: URL(string: rec.url), profile: profile, restoredState: blob.data)
       tabs[id] = t; tabProfile[id] = profile
+      t.onChange = { [weak self] in self?.tabChanged(id) }
       lifecycle.register(t, host: URL(string: rec.url)?.host, lastActive: rec.lastActive)
     }
     for id in Array(tabs.keys) where state.tabs[id] == nil {

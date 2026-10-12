@@ -9,6 +9,10 @@ if [ -f app/Package.swift ]; then
   print -r -- "$out" | grep -E '^(FAIL|ALL|[0-9]+ CHECK)'
   [ $rc -eq 0 ] && print -r -- "$out" | grep -q '^ALL CHECKS PASSED$' && ! print -r -- "$out" | grep -q '^FAIL' || { echo "GATE FAIL: core checks (rc=$rc)"; exit 1; }
 fi
+if [ -z "$SKIP_UI" ]; then
+  uiout=$(scripts/ui-selftest.sh 2>&1); print -r -- "$uiout" | grep -E '^(FAIL|SELFTEST)'
+  print -r -- "$uiout" | grep -q '^SELFTEST PASS$' || { echo "GATE FAIL: UI self-test"; print -r -- "$uiout" | tail -15; exit 1; }
+else echo "WARN: UI self-test SKIPPED"; fi
 scripts/media-check.sh; mrc=$?
 [ $mrc -eq 0 ] || [ $mrc -eq 3 ] || { echo "GATE FAIL: media regression (video/Netflix capability)"; exit 1; }
 [ $mrc -eq 3 ] && { echo "GATE OK (WITH MEDIA CHECK SKIPPED)"; exit 0; }

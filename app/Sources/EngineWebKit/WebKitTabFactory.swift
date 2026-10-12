@@ -10,7 +10,11 @@ import WebKit
 public final class WebKitTabFactory: TabFactory {
   private var configs: [ProfileID: WKWebViewConfiguration] = [:]
   private let persistent: Bool
-  public init(persistent: Bool = true) { self.persistent = persistent }
+  public var linkOpenHandler: ((_ from: TabID, _ url: URL) -> Void)?
+  /// A user click on mailto:/tel:/app links (the UI hands it to the system).
+  public var externalOpenHandler: ((URL) -> Void)?
+  public let downloads: DownloadCoordinator
+  public init(persistent: Bool = true, downloads: DownloadCoordinator = DownloadCoordinator()) { self.persistent = persistent; self.downloads = downloads }
 
   public func configuration(for profile: ProfileID) -> WKWebViewConfiguration {
     if let c = configs[profile] { return c }
@@ -25,6 +29,9 @@ public final class WebKitTabFactory: TabFactory {
   public func makeTab(id: TabID, url: URL?, profile: ProfileID, restoredState: Data?) -> any EngineTab {
     let t = WebKitTab(id: id, url: url, configuration: configuration(for: profile))
     t.restore(state: restoredState)
+    t.onOpenURL = { [weak self] u in self?.linkOpenHandler?(id, u) }
+    t.onOpenExternally = { [weak self] u in self?.externalOpenHandler?(u) }
+    t.onDownload = { [weak self] d in self?.downloads.adopt(d) }
     return t
   }
 }
