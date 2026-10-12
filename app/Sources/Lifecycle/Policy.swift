@@ -22,8 +22,10 @@ public struct UsageModel: Sendable, Codable {
     entries = lossy.compactMapValues { $0.value }
     seq = (try? c.decodeIfPresent(Int.self, forKey: .seq)) ?? 0
     alpha = (try? c.decodeIfPresent(Double.self, forKey: .alpha)) ?? 0.3
-    maxHosts = max((try? c.decodeIfPresent(Int.self, forKey: .maxHosts)) ?? 1000, 10)
+    maxHosts = min(max((try? c.decodeIfPresent(Int.self, forKey: .maxHosts)) ?? 1000, 10), 20_000)
     entries = entries.filter { $0.value.gap.isFinite && $0.value.gap >= 0 }          // a damaged entry is dropped, not trusted
+    seq = max(seq, entries.values.map(\.seq).max() ?? 0, 0)                          // new entries must be NEWER than every stored one
+    if entries.count > maxHosts { for k in entries.sorted(by: { $0.value.seq < $1.value.seq }).prefix(entries.count - maxHosts).map(\.key) { entries[k] = nil } }
   }
   private struct LossyEntry: Decodable { let value: Entry?; init(from decoder: Decoder) throws { value = try? Entry(from: decoder) } }
   enum CodingKeys: String, CodingKey { case version, entries, seq, alpha, maxHosts }
@@ -50,6 +52,11 @@ public struct UsageModel: Sendable, Codable {
   }
   public func expectedGap(host: String?) -> Double? { host.flatMap { entries[$0] }.flatMap { $0.gap.isFinite ? $0.gap : nil } }
 }
+
+/// Decodes one value without failing the container it sits in.
+struct Lossy<T: Decodable>: Decodable { let v: T?; init(from d: Decoder) throws { v = try? T(from: d) } }
+/// A PressureTable whose fields may be missing or damaged individually.
+struct PartialTable<V: Decodable>: Decodable { let normal: Lossy<V>?; let warning: Lossy<V>?; let critical: Lossy<V>? }
 
 public struct PressureTable<T: Sendable & Codable>: Sendable, Codable {
   public var normal: T, warning: T, critical: T
@@ -87,8 +94,13 @@ public struct PolicyConfig: Sendable, Codable {
     criticalFloor = get(.criticalFloor, criticalFloor); gapFactor = get(.gapFactor, gapFactor); coldGap = get(.coldGap, coldGap)
     maxGrace = get(.maxGrace, maxGrace); taperWidth = get(.taperWidth, taperWidth); pinnedMultiplier = get(.pinnedMultiplier, pinnedMultiplier)
     liveConnectionMultiplier = get(.liveConnectionMultiplier, liveConnectionMultiplier); audibleGrace = get(.audibleGrace, audibleGrace)
-    pressureScale = get(.pressureScale, pressureScale); maxLive = get(.maxLive, maxLive); budgetFloor = get(.budgetFloor, budgetFloor)
-    neverSleepHosts = get(.neverSleepHosts, neverSleepHosts)
+    func table<T: Codable & Sendable>(_ k: CodingKeys, _ cur: PressureTable<T>) -> PressureTable<T> {      // per-field: a partial table keeps the rest
+      guard let p = (try? c.decodeIfPresent(PartialTable<T>.self, forKey: k)) ?? nil else { return cur }
+      return PressureTable(normal: p.normal?.v ?? cur.normal, warning: p.warning?.v ?? cur.warning, critical: p.critical?.v ?? cur.critical)
+    }
+    pressureScale = table(.pressureScale, pressureScale); maxLive = table(.maxLive, maxLive); budgetFloor = table(.budgetFloor, budgetFloor)
+    // element by element: ONE bad entry must never drop the user's whole never-sleep list
+    if let list = (try? c.decodeIfPresent([Lossy<String>].self, forKey: .neverSleepHosts)) ?? nil { neverSleepHosts = list.compactMap(\.v) }
   }
   enum CodingKeys: String, CodingKey {
     case enabled, defaultGrace, minGrace, criticalFloor, gapFactor, coldGap, maxGrace, taperWidth, pinnedMultiplier, liveConnectionMultiplier, audibleGrace, pressureScale, maxLive, budgetFloor, neverSleepHosts
@@ -103,28 +115,34 @@ public struct PolicyConfig: Sendable, Codable {
     return c
   }
 
-  /// Lowercased bare host (no scheme/path/port/wildcard). Empty if it can't be a host.
+  /// Lowercased bare host (no scheme, userinfo, path, port, wildcard, trailing dot). Empty if it can't be a host.
   public static func normalizeHost(_ raw: String) -> String {
     var h = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-    if let r = h.range(of: "://") { h = String(h[r.upperBound...]) }
-    if let i = h.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" || $0 == ":" }) { h = String(h[..<i]) }
+    if let r = h.range(of: "://"), h[..<r.lowerBound].allSatisfy({ $0.isLetter || $0 == "+" || $0 == "-" || $0 == "." }) { h = String(h[r.upperBound...]) }
+    if let i = h.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) { h = String(h[..<i]) }              // authority only
+    if let at = h.lastIndex(of: "@") { h = String(h[h.index(after: at)...]) }                                  // drop userinfo
+    if let i = h.firstIndex(of: ":") { h = String(h[..<i]) }                                                     // drop port
     if h.hasPrefix("*.") { h.removeFirst(2) }
-    if h.hasPrefix("www.") { h.removeFirst(4) }
-    guard !h.isEmpty, h.count <= 253, h.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }), !h.hasPrefix("."), !h.hasSuffix(".") else { return "" }
+    if h.hasPrefix("www."), h.dropFirst(4).contains(".") { h.removeFirst(4) }                                    // never reduce to a bare TLD
+    while h.hasSuffix(".") { h.removeLast() }
+    guard !h.isEmpty, h.count <= 253, h.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }), !h.hasPrefix("."), !h.contains("..") else { return "" }
     return h
   }
   /// True if `host` is one of the user's never-sleep sites or a subdomain of one.
-  public func isNeverSleep(host: String?) -> Bool {
-    guard let h = host?.lowercased(), !h.isEmpty else { return false }
-    return neverSleepHosts.contains { h == $0 || h.hasSuffix("." + $0) }
+  public func isNeverSleep(host: String?) -> Bool { neverSleepEntry(covering: host) != nil }
+  /// The list entry that covers `host` (exact or parent domain), if any.
+  public func neverSleepEntry(covering host: String?) -> String? {
+    guard var h = host?.lowercased(), !h.isEmpty else { return nil }
+    while h.hasSuffix(".") { h.removeLast() }
+    return neverSleepHosts.first { h == $0 || h.hasSuffix("." + $0) }
   }
 
   /// Clamp user input to sane values (a typo must never hibernate everything).
   public func validated() -> PolicyConfig {
     var c = self
     func fin(_ x: Double, _ d: Double) -> Double { x.isFinite ? x : d }
-    c.minGrace = max(fin(c.minGrace, 15 * 60), 30)
-    c.defaultGrace = max(fin(c.defaultGrace, 60 * 60), c.minGrace)
+    c.minGrace = min(max(fin(c.minGrace, 15 * 60), 30), 24 * 3600)
+    c.defaultGrace = min(max(fin(c.defaultGrace, 60 * 60), c.minGrace), 7 * 86_400)        // absurd values can never disable time-based sleep
     c.criticalFloor = min(max(fin(c.criticalFloor, 5 * 60), 30), c.minGrace)
     c.gapFactor = min(max(fin(c.gapFactor, 3), 1), 10)
     c.coldGap = min(max(fin(c.coldGap, 45 * 60), 60), 7 * 86_400)
@@ -133,7 +151,7 @@ public struct PolicyConfig: Sendable, Codable {
     c.pinnedMultiplier = min(max(fin(c.pinnedMultiplier, 3), 1), 20)
     c.audibleGrace = min(max(fin(c.audibleGrace, 600), 0), 24 * 3600)
     c.liveConnectionMultiplier = min(max(fin(c.liveConnectionMultiplier, 3), 1), 20)
-    c.neverSleepHosts = Array(Set(c.neverSleepHosts.map { PolicyConfig.normalizeHost($0) }.filter { !$0.isEmpty })).sorted().prefix(200).map { $0 }
+    var seen = Set<String>(); c.neverSleepHosts = c.neverSleepHosts.map { PolicyConfig.normalizeHost($0) }.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(200).map { $0 }   // order kept; capped, never silently reordered
     func sc(_ x: Double) -> Double { min(max(fin(x, 1), 0.05), 1) }
     c.pressureScale = .init(normal: sc(c.pressureScale.normal), warning: sc(c.pressureScale.warning), critical: sc(c.pressureScale.critical))
     func ml(_ x: Int) -> Int { max(x, 1) }

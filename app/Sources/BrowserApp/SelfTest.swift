@@ -2,6 +2,7 @@ import AppKit
 import BrowserCore
 import EngineCore
 import EngineWebKit
+import Lifecycle
 import Foundation
 
 /// Drives the real UI programmatically and exits with a verdict. Run through scripts/ui-selftest.sh (serves local pages).
@@ -112,14 +113,27 @@ struct SelfTest {
     app.settingsController.testApply(["minGrace": "-5", "maxLiveNormal": "0"])
     check(e.policy.minGrace >= 30 && e.policy.maxLive.normal >= 1, "settings: absurd input is clamped, never applied raw")
     app.settingsController.testApply(["maxLiveNormal": "77", "minGrace": "45"])
-    app.settingsController.testApply(["maxLiveNormal": "abc"]); check(app.settingsController.statusText.hasPrefix("Please enter numbers"), "settings: non-numbers are rejected with a message")
+    app.settingsController.testApply(["maxLiveNormal": "abc"]); check(app.settingsController.statusText.hasPrefix("Not saved"), "settings: non-numbers are rejected with a message")
+    for bad in ["nan", "inf", "1e30", "-3", "1e400", "99999999999"] { app.settingsController.testApply(["maxLiveNormal": bad]); check(app.settingsController.statusText.hasPrefix("Not saved") && e.policy.maxLive.normal >= 1, "settings: '\(bad)' in a limit field is rejected (no crash)") }
+    app.settingsController.testApply(["maxLiveNormal": "77"])
     app.settingsController.testApply(["maxLiveNormal": "77"])
     app.settingsController.testApply([:], neverSleepSites: "127.0.0.1, Chat.Example, bad!host")
-    check(e.policy.neverSleepHosts == ["127.0.0.1", "chat.example"], "settings: never-sleep sites typed in the window are normalised and applied (\(e.policy.neverSleepHosts))")
+    check(e.policy.neverSleepHosts == ["127.0.0.1", "chat.example"] && app.settingsController.statusText.contains("ignored: bad!host"), "settings: never-sleep sites are normalised and applied, rejected entries are reported (\(app.settingsController.statusText))")
     let before2 = e.state.space(c1.space!)!.tabOrder.filter { $0 != c1.selected }
     c1.sleepOthers(); try? await Task.sleep(nanoseconds: 800_000_000)
     check(before2.isEmpty || before2.allSatisfy { e.tab($0)?.isLive == true || e.tab($0)?.isLive == false }, "never-sleep list does not break the sleep command")
     app.settingsController.testApply([:], neverSleepSites: "")
+    app.settingsController.testApply([:], neverSleepSites: "keep.example"); app.settingsController.perform(reset: true)
+    check(e.policy.neverSleepHosts == ["keep.example"] && e.policy.defaultGrace == PolicyConfig.relaxed.defaultGrace, "settings: Reset to Defaults resets timings but KEEPS the user's never-sleep list")
+    app.settingsController.testApply([:], neverSleepSites: "")
+    // content blocking through the real window
+    check(app.factory.blockingActive == false, "blocking: off by default")
+    app.settingsController.testApply([:], blocking: true, blockAllowlist: "shop.example")
+    check(await wait(10) { app.factory.blockingActive && app.blocking.enabled }, "blocking: enabling in Settings compiles and activates the rule list")
+    check(app.blocking.effectiveAllowlist.contains("shop.example") && app.blocking.effectiveAllowlist.contains("netflix.com"), "blocking: allowlist applied, video sites always exempt")
+    app.settingsController.testApply([:], blocking: false)
+    check(await wait(10) { !app.factory.blockingActive }, "blocking: disabling deactivates it")
+    app.settingsController.testApply(["defaultGrace": "300", "maxLiveNormal": "77", "audibleGrace": "25"])       // custom values again, so the relaunch check below is meaningful
 
     // 10. save + relaunch from the database: the WHOLE session must match
     do { try e.shutdown() } catch { check(false, "shutdown saved cleanly: \(error)") }

@@ -284,7 +284,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     menu.addItem(item("Close Tab", #selector(ctxClose(_:)))); menu.addItem(item("Sleep Tab", #selector(ctxSleep(_:))))
     menu.addItem(item("Open in New Window", #selector(ctxDetach(_:)))); menu.addItem(item("Copy Address", #selector(ctxCopy(_:))))
     if let h = engine.state.tabs[tid].flatMap({ URL(string: $0.url)?.host }) {
-      let on = engine.policy.isNeverSleep(host: h); let i = item(on ? "Allow \(h) to Sleep" : "Never Sleep \(h)", #selector(ctxNeverSleep(_:))); i.representedObject = h; menu.addItem(i)
+      let covering = engine.neverSleepEntry(covering: h)       // the list entry that actually protects this host (may be a parent domain)
+      let i = item(covering.map { "Allow \($0) to Sleep" } ?? "Never Sleep \(h)", #selector(ctxNeverSleep(_:))); i.representedObject = h; menu.addItem(i)
     }
     let move = NSMenuItem(title: "Move to Space", action: nil, keyEquivalent: ""); let sub = NSMenu()
     for sp in engine.state.spaces where sp.id != space { let i = NSMenuItem(title: sp.name, action: #selector(ctxMove(_:)), keyEquivalent: ""); i.target = self; i.representedObject = [tid, sp.id]; sub.addItem(i) }

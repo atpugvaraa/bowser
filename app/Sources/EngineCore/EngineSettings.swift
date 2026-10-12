@@ -1,4 +1,5 @@
 import BrowserCore
+import ContentBlocking
 import Foundation
 import Lifecycle
 import Persistence
@@ -25,4 +26,12 @@ public enum EngineSettings {
   public static func saveUsage(_ u: UsageModel, to session: SessionManager) throws {
     try session.store.setSetting(usageKey, try JSONEncoder().encode(u))
   }
+
+  // MARK: content blocking
+  static let blockingKey = "blocking.v1"
+  public static func loadBlocking(from session: SessionManager) -> BlockingSettings {
+    guard let data = (try? session.store.setting(blockingKey)) ?? nil, !data.isEmpty, let b = try? JSONDecoder().decode(BlockingSettings.self, from: data) else { return BlockingSettings() }
+    return b
+  }
+  public static func saveBlocking(_ b: BlockingSettings, to session: SessionManager) throws { try session.store.setSetting(blockingKey, try JSONEncoder().encode(b)) }
 }

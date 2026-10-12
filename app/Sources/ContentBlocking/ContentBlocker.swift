@@ -30,6 +30,15 @@ public final class ContentBlocker {
     return String(decoding: out, as: UTF8.self)
   }
 
+  /// Compile (cached by identifier + content) WITHOUT installing: lets the app prepare lists before any page exists.
+  public func compile(id: String, blockRules: String, allowlistDomains: [String] = []) async throws -> WKContentRuleList {
+    let json = try Self.merge(blockRules: blockRules, allowlistDomains: allowlistDomains)
+    let ident = "\(id)-\(Self.fingerprint(json))"
+    if let existing = try? await store.contentRuleList(forIdentifier: ident) { return existing }
+    do { guard let l = try await store.compileContentRuleList(forIdentifier: ident, encodedContentRuleList: json) else { throw ContentBlockerError.compileFailed("nil list") }; return l }
+    catch { throw ContentBlockerError.compileFailed("\(error)") }
+  }
+
   /// Compile (cached by identifier + content) and install on a configuration. Replaces a previous list with the same id.
   @discardableResult public func install(id: String, blockRules: String, allowlistDomains: [String] = [], on config: WKWebViewConfiguration) async throws -> Int {
     let json = try Self.merge(blockRules: blockRules, allowlistDomains: allowlistDomains)

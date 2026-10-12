@@ -1,4 +1,5 @@
 import BrowserCore
+import ContentBlocking
 import EngineCore
 import Foundation
 import WebKit
@@ -14,6 +15,22 @@ public final class WebKitTabFactory: TabFactory {
   /// A user click on mailto:/tel:/app links (the UI hands it to the system).
   public var externalOpenHandler: ((URL) -> Void)?
   public let downloads: DownloadCoordinator
+  // Content blocking: the compiled list is added to every profile configuration SYNCHRONOUSLY when it is created, so the very
+  // first request of a page is already covered (prepare it before creating any tab).
+  private var blockingList: WKContentRuleList?
+  public private(set) var blockingActive = false
+  /// Compile and activate (or deactivate) blocking. Safe to call at launch and when the user flips the setting.
+  public func prepareContentBlocking(_ settings: BlockingSettings, storeURL: URL) async throws {
+    if settings.enabled {
+      let blocker = try ContentBlocker(storeURL: storeURL)
+      blockingList = try await blocker.compile(id: "builtin", blockRules: BuiltInBlocklist.rules, allowlistDomains: settings.effectiveAllowlist)
+    } else { blockingList = nil }
+    blockingActive = blockingList != nil
+    for c in configs.values {                                  // existing profiles: swap the list (affects page loads from now on)
+      c.userContentController.removeAllContentRuleLists()
+      if let l = blockingList { c.userContentController.add(l) }
+    }
+  }
   public init(persistent: Bool = true, downloads: DownloadCoordinator = DownloadCoordinator()) { self.persistent = persistent; self.downloads = downloads }
 
   public func configuration(for profile: ProfileID) -> WKWebViewConfiguration {
@@ -22,6 +39,7 @@ public final class WebKitTabFactory: TabFactory {
     c.websiteDataStore = persistent ? WKWebsiteDataStore(forIdentifier: profile.raw) : .nonPersistent()
     // TODO(signed-app phase): enable `WebKitFeatureFlags.set("MediaDevicesEnabled", true, for: c.preferences)` for calls/meetings, ONLY together with
     // NSCameraUsageDescription / NSMicrophoneUsageDescription + entitlements; without them macOS can hang or terminate the app on access.
+    if let l = blockingList { c.userContentController.add(l) }
     configs[profile] = c
     return c
   }

@@ -1,5 +1,6 @@
 import AppKit
 import BrowserCore
+import ContentBlocking
 import EngineCore
 import EngineWebKit
 import Foundation
@@ -16,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   private var recentWindows: [WindowID] = []       // most recently key/shown first
   private var finishedDownloads = 0
   private var settings: SettingsWindowController?
+  private(set) var blocking = BlockingSettings()
   private var pressure: PressureMonitor?
   private(set) var recovery: SessionManager.Recovery = .clean
   private(set) var dataDirForTests: URL = URL(fileURLWithPath: "/")
@@ -23,19 +25,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   var isSelfTest: Bool { selfTestBase != nil }
 
   func applicationDidFinishLaunching(_ n: Notification) {
-    do { try buildStack() } catch {
+    NSApp.mainMenu = MainMenu.build(target: self)
+    Task { @MainActor in await launch() }
+  }
+
+  /// Order matters: session -> content-blocking rules compiled -> engine (creates web views) -> windows.
+  private func launch() async {
+    do { try await buildStack() } catch {
       let a = NSAlert(); a.messageText = "Can't open your session"; a.informativeText = "\(error)\n\nNothing was changed or deleted."; a.runModal(); NSApp.terminate(nil); return
     }
-    NSApp.mainMenu = MainMenu.build(target: self)
     bootstrapIfEmpty()
     syncWindows()
     startServices()
     if !isSelfTest { if case .clean = recovery {} else { announceRecovery() } }
-    if let base = selfTestBase { Task { @MainActor in await SelfTest(app: self, base: base).run() } } else { NSApp.activate(ignoringOtherApps: true) }
+    if let base = selfTestBase { await SelfTest(app: self, base: base).run() } else { NSApp.activate(ignoringOtherApps: true) }
   }
 
   // MARK: stack
-  func buildStack(dataDir: URL? = nil) throws {
+  func buildStack(dataDir: URL? = nil) async throws {
     let dir = dataDir ?? (isSelfTest
       ? FileManager.default.temporaryDirectory.appendingPathComponent("browser-selftest-\(UUID().uuidString)")
       : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Browser"))
@@ -46,6 +53,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     session = s; recovery = rec
     factory = WebKitTabFactory(persistent: !isSelfTest)
     factory.externalOpenHandler = { NSWorkspace.shared.open($0) }
+    blocking = EngineSettings.loadBlocking(from: session)
+    do { try await factory.prepareContentBlocking(blocking, storeURL: dir.appendingPathComponent("rulelists")) }
+    catch { blocking.enabled = false; NSLog("content blocking unavailable: \(error)") }       // never block launch because of a list problem
     let life = LifecycleManager(config: EngineSettings.loadPolicy(from: session), usage: EngineSettings.loadUsage(from: session), pressure: { [weak self] in self?.pressure?.level ?? .normal })
     engine = BrowserEngine(session: session, state: state, factory: factory, lifecycle: life)
     engine.onChange = { [weak self] in self?.syncWindows() }
@@ -106,6 +116,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     a.runModal()
   }
 
+  /// Apply + persist content-blocking settings. Affects page loads from now on (reload a page to see the change).
+  func applyBlocking(_ b: BlockingSettings) async throws {
+    try EngineSettings.saveBlocking(b, to: session)
+    try await factory.prepareContentBlocking(b, storeURL: dataDirForTests.appendingPathComponent("rulelists"))
+    blocking = b
+  }
+
   // MARK: menu actions (targets are nil-targeted or this delegate)
   @objc func newTab(_ s: Any?) {
     if let c = keyController { c.newTab() }
@@ -134,7 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   // MARK: menus
   /// The Spaces menu lists the current spaces (⌃1…⌃9 switch).
   func menuNeedsUpdate(_ menu: NSMenu) {
-    guard menu.title == "Spaces" else { return }
+    guard menu.title == "Spaces", engine != nil else { return }
     menu.removeAllItems()
     for (i, sp) in engine.state.spaces.enumerated() {
       let it = NSMenuItem(title: sp.name, action: #selector(switchSpace(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : ""); it.keyEquivalentModifierMask = .control
@@ -143,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     menu.addItem(.separator()); let n = NSMenuItem(title: "New Space…", action: #selector(newSpace(_:)), keyEquivalent: ""); n.target = self; menu.addItem(n)
   }
   func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    guard engine != nil else { return false }                       // still launching
     guard let c = keyController, let t = c.selected.flatMap({ engine.tab($0) }) else {
       return [#selector(newTab(_:)), #selector(newWindow(_:)), #selector(newSpace(_:)), #selector(showDownloads(_:)), #selector(closeWindow(_:))].contains(item.action!) || item.action == #selector(switchSpace(_:))
     }

@@ -127,10 +127,10 @@ public final class BrowserEngine {
   public func noteWake() { lifecycle.noteWake() }
   /// Quit: write everything now. Throws if the model cannot be written (the caller must not claim a clean shutdown).
   public func shutdown() throws {
+    try? EngineSettings.saveUsage(lifecycle.usage, to: session)             // learned habits first: they survive even if the model save fails
     syncFromTabs()
     for (id, t) in tabs { persistState(id, t) }
     try session.save(state)
-    try? EngineSettings.saveUsage(lifecycle.usage, to: session)             // learned habits survive a restart
     _ = try? session.rotateBackup()
   }
 
@@ -138,18 +138,24 @@ public final class BrowserEngine {
   public var policy: PolicyConfig { lifecycle.config }
   /// Apply and persist the user's hibernation settings (validated: a typo can never hibernate everything).
   public func updatePolicy(_ cfg: PolicyConfig) throws {
-    lifecycle.config = cfg.validated()
-    try EngineSettings.savePolicy(lifecycle.config, to: session)
+    let v = cfg.validated()
+    try EngineSettings.savePolicy(v, to: session)         // persist first: the in-memory policy only changes if the save succeeded
+    lifecycle.config = v
   }
 
-  /// Add/remove a site from the never-sleep list (matches the domain and its subdomains). Returns the new state (true = never sleeps).
+  /// Never-sleep toggle for a tab's site. If the list already COVERS the host (exact entry or a parent domain such as example.com for
+  /// app.example.com) the covering entry is removed; otherwise the host is added. Returns the new state (true = never sleeps).
+  /// Throws on a save failure; an invalid host is a no-op that returns the current state.
   @discardableResult public func toggleNeverSleep(host: String) throws -> Bool {
     var c = lifecycle.config; let h = PolicyConfig.normalizeHost(host)
-    guard !h.isEmpty else { return false }
+    guard !h.isEmpty else { return c.isNeverSleep(host: host) }
     let nowOn: Bool
-    if let i = c.neverSleepHosts.firstIndex(of: h) { c.neverSleepHosts.remove(at: i); nowOn = false } else { c.neverSleepHosts.append(h); nowOn = true }
+    if let entry = c.neverSleepEntry(covering: h), let i = c.neverSleepHosts.firstIndex(of: entry) { c.neverSleepHosts.remove(at: i); nowOn = false }
+    else { c.neverSleepHosts.append(h); nowOn = true }
     try updatePolicy(c); return nowOn
   }
+  /// The list entry that protects `host`, for menu labels ("Allow example.com to Sleep").
+  public func neverSleepEntry(covering host: String) -> String? { lifecycle.config.neverSleepEntry(covering: host) }
 
   // MARK: navigation (address bar, toolbar)
   /// What the user typed in the address bar. Returns false if the input was refused (e.g. javascript:, file:).

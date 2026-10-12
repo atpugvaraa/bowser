@@ -2,6 +2,7 @@ import BrowserCore
 import Foundation
 import Lifecycle
 import Persistence
+import ContentBlocking
 import EngineCore
 import Resources
 import SQLite3
@@ -829,7 +830,7 @@ do {
   try ses.store.setSetting("policy.v1", Data("not json at all".utf8))
   check(EngineSettings.loadPolicy(from: ses).defaultGrace == PolicyConfig.relaxed.defaultGrace, "settings: corrupt saved policy falls back to the default (no crash)")
   try ses.store.setSetting("policy.v1", Data(#"{"defaultGrace": -5, "minGrace": 1e99, "maxLive": {"normal": -1, "warning": 0, "critical": 0}}"#.utf8))
-  let wild = EngineSettings.loadPolicy(from: ses); check(wild.minGrace <= wild.defaultGrace && wild.maxLive.normal >= 1, "settings: absurd saved values are clamped by validation")
+  let wild = EngineSettings.loadPolicy(from: ses); check(wild.minGrace <= wild.defaultGrace && wild.maxLive.normal >= 1 && wild.minGrace <= 24 * 3600 && wild.defaultGrace <= 7 * 86_400, "settings: absurd saved values are clamped on BOTH ends")
   var um = UsageModel(); for _ in 0..<4 { um.recordReactivation(host: "docs.example", idleSeconds: 900) }
   try EngineSettings.saveUsage(um, to: ses)
   check(EngineSettings.loadUsage(from: ses).expectedGap(host: "docs.example") == um.expectedGap(host: "docs.example"), "habits: learned gaps persist across restarts")
@@ -841,7 +842,7 @@ do {
 do {
   var ns = PolicyConfig.relaxed; ns.neverSleepHosts = ["chat.example", "WWW.Dashboard.Example/path?x=1", "bad host", "", "*.wild.example", "https://url.example:8443/x"]
   let v = ns.validated()
-  check(v.neverSleepHosts == ["chat.example", "dashboard.example", "url.example", "wild.example"], "never-sleep: entries normalised (lowercase, no scheme/path/port/www/wildcard); junk dropped (\(v.neverSleepHosts))")
+  check(v.neverSleepHosts == ["chat.example", "dashboard.example", "wild.example", "url.example"], "never-sleep: entries normalised (lowercase, no scheme/path/port/www/wildcard); junk dropped (\(v.neverSleepHosts))")
   check(v.isNeverSleep(host: "chat.example") && v.isNeverSleep(host: "app.chat.example") && !v.isNeverSleep(host: "notchat.example") && !v.isNeverSleep(host: "chat.example.evil.com"), "never-sleep: matches the domain and subdomains only (no suffix tricks)")
   check(!PolicyConfig.relaxed.isNeverSleep(host: "chat.example") && !v.isNeverSleep(host: nil), "never-sleep: empty by default; nil host safe")
   let site = tab("chat.example", idle: 90 * 86_400)
@@ -858,6 +859,65 @@ do {
   check(EngineSettings.loadPolicy(from: nss).neverSleepHosts == ["music.example"], "engine: the list is persisted")
   check(try nse.toggleNeverSleep(host: "music.example") == false && nse.policy.neverSleepHosts.isEmpty, "engine: toggling again removes it")
   check(try nse.toggleNeverSleep(host: "!!!") == false && nse.policy.neverSleepHosts.isEmpty, "engine: an invalid host is ignored")
+}
+// 26. Content-blocking settings + built-in list validity
+do {
+  let rulesJSON = BuiltInBlocklist.rules
+  let parsed = (try? JSONSerialization.jsonObject(with: Data(rulesJSON.utf8))) as? [[String: Any]]
+  check(parsed != nil && parsed!.count >= 20, "blocklist: built-in rules are valid JSON (\(parsed?.count ?? 0) rules)")
+  check(parsed?.allSatisfy { ($0["action"] as? [String: Any])?["type"] as? String == "block" && (($0["trigger"] as? [String: Any])?["load-type"] as? [String]) == ["third-party"] } == true, "blocklist: every built-in rule is third-party-only (first-party requests are never touched)")
+  let re = try NSRegularExpression(pattern: (parsed![0]["trigger"] as! [String: Any])["url-filter"] as! String)
+  func hit(_ u: String) -> Bool { re.firstMatch(in: u, range: NSRange(u.startIndex..., in: u)) != nil }
+  check(hit("https://doubleclick.net/x") && hit("http://ad.doubleclick.net/pagead") && hit("https://doubleclick.net:443/x") && !hit("https://notdoubleclick.net/x") && !hit("https://doubleclick.net.evil.com/x") && !hit("https://example.com/doubleclick.net"), "blocklist: host pattern matches the domain/subdomains only (no suffix or path tricks)")
+  check(BlockingSettings().enabled == false, "blocking: off by default")
+  var bs = BlockingSettings(); bs.enabled = true; bs.allowlist = ["Example.COM", "https://Site.Example/path", "bad host!", "www.shop.example"]
+  check(bs.effectiveAllowlist.contains("netflix.com") && bs.effectiveAllowlist.contains("youtube.com") && bs.effectiveAllowlist.contains("primevideo.com") && bs.effectiveAllowlist.contains("googlevideo.com"), "blocking: video sites are always exempt")
+  check(bs.effectiveAllowlist.contains("example.com") && bs.effectiveAllowlist.contains("site.example") && bs.effectiveAllowlist.contains("shop.example") && !bs.effectiveAllowlist.contains("bad host!"), "blocking: user allowlist is normalised, junk dropped")
+  let dec = try JSONDecoder().decode(BlockingSettings.self, from: Data(#"{"enabled": true, "allowlist": ["a.example", 5, null]}"#.utf8))
+  check(dec.enabled == false || dec.enabled == true, "blocking: a damaged allowlist does not throw")
+  check((try? JSONDecoder().decode(BlockingSettings.self, from: Data("garbage".utf8))) == nil, "blocking: pure garbage is rejected (caller falls back to defaults)")
+  let bsp = tmpDB(); let (bss, _, _) = try SessionManager.start(path: bsp)
+  check(EngineSettings.loadBlocking(from: bss) == BlockingSettings(), "blocking: no saved setting -> defaults (off)")
+  try EngineSettings.saveBlocking(bs, to: bss); check(EngineSettings.loadBlocking(from: bss).enabled && EngineSettings.loadBlocking(from: bss).allowlist.contains("example.com"), "blocking: settings persist")
+  try bss.store.setSetting("blocking.v1", Data("garbage".utf8)); check(EngineSettings.loadBlocking(from: bss) == BlockingSettings(), "blocking: corrupt saved setting falls back to off")
+}
+extension PolicyConfig { init(neverSleepHosts: [String]) { self.init(); self.neverSleepHosts = neverSleepHosts } }
+// 27. 6th-review fixes
+do {
+  // HIGH 2: one bad element must not drop the never-sleep list; partial tables keep the rest
+  let j1 = try JSONDecoder().decode(PolicyConfig.self, from: Data(#"{"neverSleepHosts": ["a.example", 5, null, {"x":1}, "b.example"]}"#.utf8))
+  check(j1.neverSleepHosts == ["a.example", "b.example"], "decode: a bad element in neverSleepHosts is skipped, the rest kept (\(j1.neverSleepHosts))")
+  let j2 = try JSONDecoder().decode(PolicyConfig.self, from: Data(#"{"maxLive": {"normal": 80, "critical": "x"}}"#.utf8))
+  check(j2.maxLive.normal == 80 && j2.maxLive.warning == PolicyConfig().maxLive.warning && j2.maxLive.critical == PolicyConfig().maxLive.critical, "decode: a partial/damaged pressure table keeps valid fields and defaults the rest")
+  // HIGH 3: absurd timings cannot disable time-based sleep
+  var huge = PolicyConfig.relaxed; huge.minGrace = 1e99; huge.defaultGrace = 1e99; huge.criticalFloor = 1e99
+  let hv = huge.validated(); check(hv.minGrace <= 24 * 3600 && hv.defaultGrace <= 7 * 86_400 && hv.criticalFloor <= hv.minGrace, "validation: absurdly large grace values are capped")
+  check(hib([tab("a.example", idle: 8 * 86_400)], config: huge).count == 1, "validation: with absurd saved values a tab idle 8 days still sleeps")
+  // MEDIUM 11: usage seq reconciled, oversize trimmed
+  let j3 = try JSONDecoder().decode(UsageModel.self, from: Data(#"{"seq": -5, "maxHosts": 10, "entries": {"a": {"gap": 60, "seq": 100}, "b": {"gap": 60, "seq": 101}}}"#.utf8))
+  var u3 = j3; u3.recordReactivation(host: "c", idleSeconds: 60); u3.maxHosts = 10
+  check(u3.gaps["c"] != nil && u3.gaps["a"] != nil && u3.gaps["b"] != nil, "usage: a stored seq <= entries cannot make new entries evictable first")
+  var many = #"{"maxHosts": 10, "entries": {"#; for i in 0..<30 { many += "\"h\(i)\": {\"gap\": 60, \"seq\": \(i)}" + (i < 29 ? "," : "") }; many += "}}"
+  let j4 = try JSONDecoder().decode(UsageModel.self, from: Data(many.utf8)); check(j4.gaps.count == 10 && j4.gaps["h29"] != nil && j4.gaps["h0"] == nil, "usage: an oversized saved model is trimmed to maxHosts keeping the newest")
+  // LOW 12/13: normalisation
+  func nh(_ s: String) -> String { PolicyConfig.normalizeHost(s) }
+  check(nh("www.com") == "www.com" && nh("www.example.com") == "example.com", "host: 'www.com' is not reduced to a bare TLD")
+  check(nh("https://user:pw@chat.example:8443/x") == "chat.example", "host: userinfo, port and path are dropped")
+  check(nh("a.com/?u=https://evil.com") == "a.com", "host: a URL inside the query does not become the host")
+  check(nh("Chat.Example.") == "chat.example" && PolicyConfig(neverSleepHosts: ["chat.example"]).isNeverSleep(host: "chat.example."), "host: trailing dot normalised, and does not bypass the list")
+  check(nh("a..b") == "" && nh("") == "" && nh("é.example") == "" && nh("[::1]") == "", "host: invalid / unsupported forms are rejected, not guessed")
+  // MEDIUM 4: toggle semantics for subdomains
+  let tp = tmpDB(); let (ts, t0, _) = try SessionManager.start(path: tp, debounce: 0.05); let te = BrowserEngine(session: ts, state: t0, factory: FFactory())
+  _ = try te.toggleNeverSleep(host: "example.com")
+  check(te.neverSleepEntry(covering: "app.example.com") == "example.com", "toggle: the covering entry is reported for a subdomain tab")
+  check(try te.toggleNeverSleep(host: "app.example.com") == false && te.policy.neverSleepHosts.isEmpty, "toggle: on a covered subdomain it REMOVES the covering entry (label 'Allow example.com to Sleep' is honest)")
+  check(try te.toggleNeverSleep(host: "app.example.com") == true && te.policy.neverSleepHosts == ["app.example.com"], "toggle: on an uncovered host it adds exactly that host")
+  check(try te.toggleNeverSleep(host: "!!!") == false && te.policy.neverSleepHosts == ["app.example.com"], "toggle: invalid host is a no-op that returns the current state")
+  // list order preserved, cap
+  var ordered = PolicyConfig.relaxed; ordered.neverSleepHosts = ["z.example", "a.example", "m.example", "a.example"]
+  check(ordered.validated().neverSleepHosts == ["z.example", "a.example", "m.example"], "list: order kept, duplicates removed")
+  var big = PolicyConfig.relaxed; big.neverSleepHosts = (0..<300).map { "h\($0).example" }
+  check(big.validated().neverSleepHosts.count == 200 && big.validated().neverSleepHosts.first == "h0.example", "list: capped at 200, keeping the FIRST ones the user typed")
 }
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

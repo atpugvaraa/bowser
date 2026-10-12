@@ -1,5 +1,6 @@
 import AppKit
 import BrowserCore
+import ContentBlocking
 import EngineCore
 import Foundation
 import Lifecycle
@@ -10,12 +11,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   unowned let app: AppDelegate
   let window: NSWindow
   private var fields: [String: NSTextField] = [:]
-  private let enabled = NSButton(checkboxWithTitle: "Sleep idle tabs automatically", target: nil, action: nil)
+  private let enabled = NSButton(checkboxWithTitle: "Sleep tabs by idle time (the awake-tab limits below always apply)", target: nil, action: nil)
+  private let blockEnabled = NSButton(checkboxWithTitle: "Block ads and trackers (conservative list; Netflix, Prime and YouTube are always exempt)", target: nil, action: nil)
+  private let blockAllow = NSTextField()
+  private var loadedText: [String: String] = [:]
   private let status = NSTextField(labelWithString: "")
 
   init(app: AppDelegate) {
     self.app = app
-    window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     super.init()
     window.title = "Settings"; window.isReleasedWhenClosed = false; window.delegate = self
     build(); load()
@@ -48,6 +52,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let ns = NSStackView(); ns.orientation = .vertical; ns.alignment = .leading; ns.spacing = 4
     let nl = NSTextField(labelWithString: "Never sleep these sites (comma-separated):"); neverSleep.placeholderString = "music.example, chat.example"; neverSleep.widthAnchor.constraint(equalToConstant: 420).isActive = true
     ns.addArrangedSubview(nl); ns.addArrangedSubview(neverSleep); stack.addArrangedSubview(ns)
+    stack.addArrangedSubview(blockEnabled)
+    let bl = NSTextField(labelWithString: "Don't block on these sites (comma-separated):"); blockAllow.placeholderString = "shop.example"; blockAllow.widthAnchor.constraint(equalToConstant: 420).isActive = true
+    stack.addArrangedSubview(bl); stack.addArrangedSubview(blockAllow)
     let apply = NSButton(title: "Apply", target: self, action: #selector(applyClicked)); apply.bezelStyle = .rounded; apply.keyEquivalent = "\r"
     let reset = NSButton(title: "Reset to Defaults", target: self, action: #selector(resetClicked)); reset.bezelStyle = .rounded
     let buttons = NSStackView(views: [reset, apply]); buttons.spacing = 10
@@ -64,25 +71,69 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     fields["criticalFloor"]?.stringValue = minutes(c.criticalFloor); fields["audibleGrace"]?.stringValue = minutes(c.audibleGrace)
     fields["maxLiveNormal"]?.stringValue = "\(c.maxLive.normal)"; fields["maxLiveWarning"]?.stringValue = "\(c.maxLive.warning)"; fields["maxLiveCritical"]?.stringValue = "\(c.maxLive.critical)"
     neverSleep.stringValue = c.neverSleepHosts.joined(separator: ", ")
+    blockEnabled.state = app.blocking.enabled ? .on : .off; blockAllow.stringValue = app.blocking.allowlist.joined(separator: ", ")
+    loadedText = fields.mapValues { $0.stringValue }; loadedText["enabled"] = "\(enabled.state.rawValue)"; loadedText["neverSleep"] = neverSleep.stringValue
     status.stringValue = ""
   }
-  private func num(_ k: String) -> Double? { fields[k].flatMap { Double($0.stringValue.trimmingCharacters(in: .whitespaces)) } }
-
+  /// Finite, sane numbers only ("nan", "inf", "1e400" and absurd sizes are rejected, never trapped on).
+  private func num(_ k: String, max: Double = 1_000_000) -> Double? {
+    guard let d = fields[k].flatMap({ Double($0.stringValue.trimmingCharacters(in: .whitespaces)) }), d.isFinite, d >= 0, d <= max else { return nil }
+    return d
+  }
   /// Test hook: type values into the real fields and press Apply.
-  func testApply(_ values: [String: String], neverSleepSites: String? = nil) { for (k, v) in values { fields[k]?.stringValue = v }; if let n = neverSleepSites { neverSleep.stringValue = n }; applyClicked() }
+  func testApply(_ values: [String: String], neverSleepSites: String? = nil, blocking: Bool? = nil, blockAllowlist: String? = nil) {
+    for (k, v) in values { fields[k]?.stringValue = v }
+    if let n = neverSleepSites { neverSleep.stringValue = n }
+    if let b = blocking { blockEnabled.state = b ? .on : .off }
+    if let a = blockAllowlist { blockAllow.stringValue = a }
+    applyClicked()
+  }
   var statusText: String { status.stringValue }
+  func perform(reset: Bool) { if reset { resetClicked() } }
 
   @objc private func applyClicked() {
-    guard let dg = num("defaultGrace"), let mg = num("minGrace"), let cf = num("criticalFloor"), let ag = num("audibleGrace"),
-          let ln = num("maxLiveNormal"), let lw = num("maxLiveWarning"), let lc = num("maxLiveCritical") else { status.stringValue = "Please enter numbers only."; status.textColor = .systemRed; return }
     var c = app.engine.policy
-    c.enabled = enabled.state == .on
-    c.defaultGrace = dg * 60; c.minGrace = mg * 60; c.criticalFloor = cf * 60; c.audibleGrace = ag * 60
-    c.maxLive = .init(normal: Int(ln), warning: Int(lw), critical: Int(lc))
-    c.neverSleepHosts = neverSleep.stringValue.split(whereSeparator: { $0 == "," || $0 == "\n" || $0 == " " }).map(String.init)
-    do { try app.engine.updatePolicy(c); load(); status.stringValue = "Saved."; status.textColor = .systemGreen } catch { status.stringValue = "Couldn't save: \(error)"; status.textColor = .systemRed }
+    var problems: [String] = []
+    // only fields the user actually changed are written (a stored 30 s value must not be rounded to 1 min by merely pressing Apply)
+    func changed(_ k: String) -> Bool { fields[k]?.stringValue != loadedText[k] }
+    func minutesField(_ k: String, _ apply: (Double) -> Void) {
+      guard changed(k) else { return }
+      if let m = num(k, max: 7 * 24 * 60) { apply(m * 60) } else { problems.append("\(k): enter a number of minutes") }
+    }
+    minutesField("defaultGrace") { c.defaultGrace = $0 }; minutesField("minGrace") { c.minGrace = $0 }
+    minutesField("criticalFloor") { c.criticalFloor = $0 }; minutesField("audibleGrace") { c.audibleGrace = $0 }
+    func limit(_ k: String) -> Int? { guard changed(k) else { return nil }; if let d = num(k, max: 100_000), let i = Int(exactly: d.rounded()), i >= 1 { return i }; problems.append("\(k): enter a whole number of tabs (1 or more)"); return nil }
+    if let v = limit("maxLiveNormal") { c.maxLive.normal = v }; if let v = limit("maxLiveWarning") { c.maxLive.warning = v }; if let v = limit("maxLiveCritical") { c.maxLive.critical = v }
+    if "\(enabled.state.rawValue)" != loadedText["enabled"] { c.enabled = enabled.state == .on }
+    var rejected: [String] = []
+    if neverSleep.stringValue != loadedText["neverSleep"] {
+      let tokens = neverSleep.stringValue.split(whereSeparator: { $0 == "," || $0 == "\n" || $0 == " " }).map(String.init)
+      var list: [String] = []; for t in tokens { let h = PolicyConfig.normalizeHost(t); if h.isEmpty { rejected.append(t) } else if !list.contains(h) { list.append(h) } }
+      if list.count > 200 { rejected.append("(\(list.count - 200) entries beyond the 200-site limit)"); list = Array(list.prefix(200)) }
+      c.neverSleepHosts = list
+    }
+    if !problems.isEmpty { status.stringValue = "Not saved — " + problems.joined(separator: "; "); status.textColor = .systemRed; return }
+    do {
+      try app.engine.updatePolicy(c)
+      let applied = app.engine.policy
+      var notes: [String] = []
+      if applied.minGrace != c.minGrace || applied.defaultGrace != c.defaultGrace || applied.criticalFloor != c.criticalFloor || applied.maxLive.normal != c.maxLive.normal { notes.append("some values were adjusted to safe limits") }
+      if !rejected.isEmpty { notes.append("ignored: " + rejected.joined(separator: ", ")) }
+      applyBlockingFromFields()
+      load(); status.stringValue = notes.isEmpty ? "Saved." : "Saved — " + notes.joined(separator: "; "); status.textColor = notes.isEmpty ? .systemGreen : .systemOrange
+    } catch { status.stringValue = "Couldn't save: \(error)"; status.textColor = .systemRed }
   }
+
+  private func applyBlockingFromFields() {
+    var b = BlockingSettings(); b.enabled = blockEnabled.state == .on
+    b.allowlist = blockAllow.stringValue.split(whereSeparator: { $0 == "," || $0 == "\n" || $0 == " " }).map { BlockingSettings.normalize(String($0)) }.filter { !$0.isEmpty }
+    guard b != app.blocking else { return }
+    Task { @MainActor in do { try await app.applyBlocking(b) } catch { status.stringValue = "Blocking couldn't be changed: \(error)"; status.textColor = .systemRed } }
+  }
+
   @objc private func resetClicked() {
-    do { try app.engine.updatePolicy(.relaxed); load(); status.stringValue = "Back to defaults."; status.textColor = .secondaryLabelColor } catch { status.stringValue = "Couldn't save: \(error)"; status.textColor = .systemRed }
+    var d = PolicyConfig.relaxed; d.neverSleepHosts = app.engine.policy.neverSleepHosts       // your site list is YOURS: a reset keeps it
+    do { try app.engine.updatePolicy(d); load(); status.stringValue = "Timings reset to defaults. Your never-sleep sites were kept."; status.textColor = .secondaryLabelColor }
+    catch { status.stringValue = "Couldn't save: \(error)"; status.textColor = .systemRed }
   }
 }
