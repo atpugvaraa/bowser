@@ -251,6 +251,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
   }
 
+  func showQuickOpen() { app.quickOpen.show(for: self) }
+  func toggleBookmark() {
+    guard let s = selected else { return }
+    if (try? engine.toggleBookmark(tab: s)) == nil { NSSound.beep() }
+  }
+  func openBookmark(_ url: String) { if let sp = space { _ = engine.newTab(in: sp, url: url, window: id) } }
+
   func sleepOthers() {
     guard let sp = space.flatMap({ engine.state.space($0) }) else { return }
     for t in sp.tabOrder where t != selected { Task { @MainActor in _ = await engine.lifecycle.sleepNow(t); refresh() } }

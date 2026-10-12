@@ -11,7 +11,7 @@ import Foundation
 struct SelfTest {
   let app: AppDelegate; let base: String
 
-  func menuItem(_ title: String) -> NSMenuItem? {
+  func menuItem(_ title: String) -> NSMenuItem? {   // (title lookup walks submenus)
     func find(_ m: NSMenu) -> NSMenuItem? {
       for i in m.items { if i.title == title { return i }; if let s = i.submenu, let f = find(s) { return f } }
       return nil
@@ -73,6 +73,20 @@ struct SelfTest {
     check(wv?.configuration.preferences.isElementFullscreenEnabled == true, "video: element fullscreen is enabled (the player's fullscreen button works)")
     check(wv?.isInspectable == true, "devtools: Web Inspector is available for tabs (Safari ▸ Develop)")
     check(WebKitTab.missingDelegateMethods().isEmpty, "all WebKit delegate methods (incl. JS dialogs, file upload) are implemented under real selector names: \(WebKitTab.missingDelegateMethods())")
+
+    // 3c. history, bookmarks, quick open through the real menus
+    check(c1.space.map { e.bookmarks(inSpace: $0).isEmpty } ?? false, "bookmarks: none at first")
+    check(choose("Bookmark This Page"), "menu: Bookmark This Page"); await settle()
+    check(e.isBookmarked(tab: c1.selected!), "⌘D (menu): the page is bookmarked")
+    if let bm = NSApp.mainMenu?.items.first(where: { $0.title == "Bookmarks" })?.submenu { app.menuNeedsUpdate(bm); check(bm.items.contains { $0.title == "Page B" || $0.title.hasPrefix("Page") }, "menu: the Bookmarks menu lists it") }
+    check(choose("Bookmark This Page"), "menu: Bookmark This Page again"); await settle(); check(!e.isBookmarked(tab: c1.selected!), "⌘D again removes the bookmark")
+    check(!app.session.searchHistory(query: "page a").isEmpty && !app.session.searchHistory(query: "page b").isEmpty, "history: visited pages are searchable (\(app.session.searchHistory(query: "").count) entries)")
+    check(choose("Quick Open…"), "menu: Quick Open…"); await settle()
+    check(app.quickOpen.isVisible, "⌘K: the palette is visible")
+    app.quickOpen.setQuery("page a"); check(app.quickOpen.results.first?.kind == .openTab && app.quickOpen.results.first?.title == "Page A", "quick open: typing finds the open tab first (\(app.quickOpen.results.map { "\($0.kind)" }))")
+    app.quickOpen.setQuery("zzzz-nothing"); check(app.quickOpen.results.isEmpty, "quick open: no match shows nothing")
+    app.quickOpen.setQuery("page b"); let chose = app.quickOpen.chooseFirst(); await settle()
+    check(chose && c1.window.title == "Page B" && !app.quickOpen.isVisible, "quick open: Enter selects that tab and closes the palette")
 
     // 4. tab switching (menu + number)
     c1.selectTab(number: 1); await settle(); check(c1.window.title == "Page A", "⌘1 selects the first tab")

@@ -21,6 +21,8 @@ public final class SessionManager {
   private var pending: DispatchWorkItem?
   private var latest: BrowserState?
   private var pendingStates: [TabID: Data] = [:]        // blobs whose write failed; retried on every flush
+  private var pendingVisits: [(profile: ProfileID, url: String, title: String, at: Date)] = []   // history is buffered and written in ONE transaction per flush
+  private var pendingTitles: [String: (ProfileID, String, String)] = [:]
   private var lastBackup: Date = .distantPast
   private let debounce: TimeInterval
   public var retryBase: TimeInterval = 5            // first retry delay after a failed save (doubles up to 5 min); tests lower it
@@ -98,7 +100,28 @@ public final class SessionManager {
     pending?.cancel(); pending = nil
     if let s = latest { try store.save(s); latest = nil }
     for (id, d) in pendingStates { try store.setTabState(id, d); pendingStates[id] = nil }
+    if !pendingVisits.isEmpty { try store.recordVisits(pendingVisits); pendingVisits.removeAll() }
+    for (k, v) in pendingTitles { try store.updateHistoryTitle(profile: v.0, url: v.1, title: v.2); pendingTitles[k] = nil }
   }
+
+  // MARK: history & bookmarks (buffered writes, direct reads)
+  /// A page finished loading. Buffered; never loses the visit on a failed write (kept for the next flush, capped at 5,000).
+  public func recordVisit(profile: ProfileID, url: String, title: String, at: Date = Date()) {
+    pendingVisits.append((profile, url, title, at)); if pendingVisits.count > 5000 { pendingVisits.removeFirst(pendingVisits.count - 5000) }
+  }
+  public func noteTitle(profile: ProfileID, url: String, title: String) { if !title.isEmpty { pendingTitles["\(profile.raw)|\(url)"] = (profile, url, title) } }
+  /// Searching includes visits that are still buffered (flushed first) so what you just visited is findable immediately.
+  public func searchHistory(profile: ProfileID? = nil, query: String, limit: Int = 50) -> [Store.HistoryEntry] {
+    try? flushHistoryOnly(); return (try? store.searchHistory(profile: profile, query: query, limit: limit)) ?? []
+  }
+  private func flushHistoryOnly() throws {
+    if !pendingVisits.isEmpty { try store.recordVisits(pendingVisits); pendingVisits.removeAll() }
+    for (k, v) in pendingTitles { try store.updateHistoryTitle(profile: v.0, url: v.1, title: v.2); pendingTitles[k] = nil }
+  }
+  public func bookmarks(profile: ProfileID? = nil) -> [Store.Bookmark] { (try? store.bookmarks(profile: profile)) ?? [] }
+  @discardableResult public func addBookmark(profile: ProfileID, url: String, title: String) throws -> UUID { try store.addBookmark(profile: profile, url: url, title: title) }
+  public func removeBookmark(_ id: UUID) throws { try store.removeBookmark(id) }
+  public func clearHistory(profile: ProfileID? = nil) throws { pendingVisits.removeAll(); pendingTitles.removeAll(); try store.clearHistory(profile: profile) }
   public func save(_ state: BrowserState) throws { pending?.cancel(); pending = nil; latest = state; try flush() }
 
   // MARK: backups

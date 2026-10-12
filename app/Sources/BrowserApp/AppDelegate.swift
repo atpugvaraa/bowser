@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   private var recentWindows: [WindowID] = []       // most recently key/shown first
   private var finishedDownloads = 0
   private var settings: SettingsWindowController?
+  private var quickOpenStorage: QuickOpenController?
+  var quickOpen: QuickOpenController { if quickOpenStorage == nil { quickOpenStorage = QuickOpenController() }; return quickOpenStorage! }
   private(set) var blocking = BlockingSettings()
   private var pressure: PressureMonitor?
   private(set) var recovery: SessionManager.Recovery = .clean
@@ -143,6 +145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   @objc func newSpace(_ s: Any?) { keyController?.newSpacePrompt() }
   @objc func switchSpace(_ s: NSMenuItem) { keyController?.switchSpace(index: s.tag) }
   @objc func sleepOtherTabs(_ s: Any?) { keyController?.sleepOthers() }
+  @objc func quickOpenCommand(_ s: Any?) { keyController?.showQuickOpen() }
+  @objc func bookmarkPage(_ s: Any?) { keyController?.toggleBookmark() }
+  @objc func openBookmarkItem(_ s: NSMenuItem) { if let u = s.representedObject as? String { keyController?.openBookmark(u) } }
   @objc func zoomIn(_ s: Any?) { keyController?.zoom(by: 1.1) }
   @objc func zoomOut(_ s: Any?) { keyController?.zoom(by: 1 / 1.1) }
   @objc func zoomReset(_ s: Any?) { keyController?.zoomReset() }
@@ -155,7 +160,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   // MARK: menus
   /// The Spaces menu lists the current spaces (⌃1…⌃9 switch).
   func menuNeedsUpdate(_ menu: NSMenu) {
-    guard menu.title == "Spaces", engine != nil else { return }
+    guard engine != nil else { return }
+    if menu.title == "Bookmarks" {
+      for it in menu.items where it.tag == 900 { menu.removeItem(it) }                 // only the dynamic list below the static item is rebuilt
+      let list = keyController?.space.map { engine.bookmarks(inSpace: $0) } ?? []
+      if list.isEmpty { let e = NSMenuItem(title: "No bookmarks yet", action: nil, keyEquivalent: ""); e.isEnabled = false; e.tag = 900; menu.addItem(e) }
+      for b in list.prefix(60) { let i = NSMenuItem(title: b.title.isEmpty ? b.url : String(b.title.prefix(60)), action: #selector(openBookmarkItem(_:)), keyEquivalent: ""); i.target = self; i.representedObject = b.url; i.toolTip = b.url; i.tag = 900; menu.addItem(i) }
+      return
+    }
+    guard menu.title == "Spaces" else { return }
     menu.removeAllItems()
     for (i, sp) in engine.state.spaces.enumerated() {
       let it = NSMenuItem(title: sp.name, action: #selector(switchSpace(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : ""); it.keyEquivalentModifierMask = .control

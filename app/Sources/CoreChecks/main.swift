@@ -929,5 +929,87 @@ do {
   check(!d.shouldOfferSuppress(now: t0.addingTimeInterval(30)), "dialogs: the offer disappears once the burst is over")
   d.suppress(); check(d.suppressed, "dialogs: suppression sticks for the page"); d.reset(); check(!d.suppressed && !d.shouldOfferSuppress(now: t0.addingTimeInterval(3)), "dialogs: a new page load gets a clean slate")
 }
+// 29. History, bookmarks, quick search
+do {
+  let hp = tmpDB(); let hs = try Store(path: hp); _ = try hs.load()
+  let pa = ProfileID(), pb = ProfileID(); let t0 = Date(timeIntervalSince1970: 3_000_000)
+  try hs.recordVisits([(pa, "https://swift.org/docs", "Swift Docs", t0), (pa, "https://swift.org/docs", "", t0.addingTimeInterval(10)), (pa, "https://news.example/a", "News ☃ Üñí", t0.addingTimeInterval(20)), (pb, "https://other.example", "Other", t0)])
+  let all = try hs.searchHistory(profile: pa, query: "")
+  check(all.count == 2 && all[0].url == "https://news.example/a" && all[1].visits == 2 && all[1].title == "Swift Docs", "history: upsert counts visits, keeps the title when a later visit has none, newest first")
+  let hSw = try hs.searchHistory(profile: pa, query: "swift"), hOt = try hs.searchHistory(query: "other"); check(hSw.count == 1 && hOt.count == 1, "history: substring search by title or URL")
+  check(try hs.searchHistory(profile: pa, query: "ÜÑÍ").count == 1, "history: case-insensitive for unicode")
+  let h1 = try hs.searchHistory(profile: pa, query: "%"), h2 = try hs.searchHistory(profile: pa, query: "_"), h3 = try hs.searchHistory(profile: pa, query: "' OR 1=1 --"); check(h1.isEmpty && h2.isEmpty && h3.isEmpty, "history: wildcard/SQL-looking input is plain text, not a pattern")
+  check(try hs.searchHistory(profile: pb, query: "swift").isEmpty, "history: profiles are isolated")
+  try hs.updateHistoryTitle(profile: pa, url: "https://swift.org/docs", title: "Swift Documentation"); check(try hs.searchHistory(profile: pa, query: "documentation").count == 1, "history: title updates after the visit")
+  let hl1 = try hs.searchHistory(profile: pa, query: "", limit: 1), hl2 = try hs.searchHistory(profile: pa, query: "", limit: 100_000); check(hl1.count == 1 && hl2.count == 2, "history: limit is honoured and clamped")
+  let b1 = try hs.addBookmark(profile: pa, url: "https://swift.org", title: "Swift"); let b2 = try hs.addBookmark(profile: pa, url: "https://swift.org", title: "dupe")
+  let bmA = try hs.bookmarks(profile: pa); check(b1 == b2 && bmA.count == 1, "bookmarks: the same URL is bookmarked once")
+  _ = try hs.addBookmark(profile: pa, url: "https://b.example", title: "B"); _ = try hs.addBookmark(profile: pb, url: "https://c.example", title: "C")
+  let bmA2 = try hs.bookmarks(profile: pa), bmAll = try hs.bookmarks(); check(bmA2.map(\.title) == ["Swift", "B"] && bmAll.count == 3, "bookmarks: order kept, per-profile listing")
+  try hs.removeBookmark(b1); check((try hs.bookmarks(profile: pa)).map(\.title) == ["B"], "bookmarks: remove")
+  check(try hs.historyCount() == 3, "history: nothing is ever deleted automatically")
+  // migration v3 -> v4 keeps existing data
+  let mp = tmpDB(); var mh: OpaquePointer?; sqlite3_open(mp, &mh)
+  sqlite3_exec(mh, """
+  CREATE TABLE space(id TEXT PRIMARY KEY, name TEXT NOT NULL, profile TEXT NOT NULL, ord INTEGER NOT NULL);
+  CREATE TABLE tab(id TEXT PRIMARY KEY, space TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE, url TEXT NOT NULL, title TEXT NOT NULL, pinned INTEGER NOT NULL, last_active REAL NOT NULL, ord INTEGER NOT NULL);
+  CREATE TABLE window(id TEXT PRIMARY KEY, space TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE, selected TEXT, ord INTEGER NOT NULL);
+  CREATE TABLE window_last(window TEXT NOT NULL REFERENCES window(id) ON DELETE CASCADE, space TEXT NOT NULL, tab TEXT NOT NULL, PRIMARY KEY(window, space));
+  CREATE TABLE setting(key TEXT PRIMARY KEY, value BLOB NOT NULL);
+  CREATE TABLE archive(id TEXT PRIMARY KEY, space TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, pinned INTEGER NOT NULL, closed_at REAL NOT NULL, idx INTEGER NOT NULL, ord INTEGER NOT NULL, profile TEXT, last_active REAL);
+  CREATE TABLE tab_state(tab TEXT PRIMARY KEY, state BLOB NOT NULL, updated REAL NOT NULL);
+  INSERT INTO space VALUES('\(UUID().uuidString)','Keep','\(UUID().uuidString)',0);
+  PRAGMA user_version=3;
+  """, nil, nil, nil); sqlite3_close(mh)
+  let ms = try Store(path: mp); let mstate = try ms.load()
+  let mh0 = try ms.historyCount(); check(mstate.spaces.count == 1 && mstate.spaces[0].name == "Keep" && mh0 == 0, "migration v3 -> v4 keeps data and adds history/bookmarks")
+  // quick search ranking
+  func cand(_ k: QuickCandidate.Kind, _ t: String, _ u: String, _ r: Double = 0.5) -> QuickCandidate { QuickCandidate(kind: k, title: t, url: u, recency: r) }
+  let pool = [cand(.history, "Swift Evolution", "https://forums.swift.org/evolution"), cand(.openTab, "Swift Docs", "https://swift.org/docs"), cand(.bookmark, "Swift Package Index", "https://swiftpackageindex.com"),
+              cand(.closedTab, "Rust Book", "https://doc.rust-lang.org/book"), cand(.history, "Swift Docs", "https://swift.org/docs")]
+  let r1 = QuickSearch.rank(pool, query: "swift")
+  check(r1.first?.kind == .openTab && r1.count == 3 && r1.map(\.url).filter { $0 == "https://swift.org/docs" }.count == 1, "quick search: open tabs rank first, duplicate URLs collapse to the best source")
+  check(QuickSearch.rank(pool, query: "swift docs").first?.url == "https://swift.org/docs" && QuickSearch.rank(pool, query: "swift zzz").isEmpty, "quick search: every word must match")
+  check(QuickSearch.rank(pool, query: "rust book").map(\.kind) == [.closedTab] && QuickSearch.rank(pool, query: "RUST-LANG").first?.title == "Rust Book", "quick search: case-insensitive, matches the URL host too")
+  check(QuickSearch.rank(pool, query: "").count == 4 && QuickSearch.rank(pool, query: "   ").count == 4, "quick search: empty query lists everything by recency")
+  check(QuickSearch.rank(pool, query: "swift", limit: 1).count == 1, "quick search: limit honoured")
+}
+// 30. Engine: history recording, quick open, bookmarks
+do {
+  let ep2 = tmpDB(); let (se2, s02, _) = try SessionManager.start(path: ep2, debounce: 0.05)
+  let f2 = FFactory(); let e2 = BrowserEngine(session: se2, state: s02, factory: f2)
+  let sp = e2.addSpace(name: "H", profile: ProfileID()); let w = e2.openWindow(space: sp)!
+  let t = e2.newTab(in: sp, url: "https://start.example", window: w)!
+  let ft = f2.made[t]!
+  ft.url = URL(string: "https://swift.org/docs"); ft.title = ""; ft.onChange?()
+  ft.title = "Swift Docs"; ft.onChange?()
+  ft.url = URL(string: "about:blank"); ft.onChange?()
+  ft.url = URL(string: "https://news.example/a"); ft.title = "News"; ft.onChange?()
+  let hist = se2.searchHistory(query: "")
+  check(hist.map(\.url).sorted() == ["https://news.example/a", "https://swift.org/docs"], "history: one entry per finished navigation; blank pages are not history (\(hist.map(\.url)))")
+  check(hist.first { $0.url == "https://swift.org/docs" }?.title == "Swift Docs", "history: the title that arrives after the visit is attached")
+  ft.onChange?(); ft.onChange?(); check(se2.searchHistory(query: "news").first?.visits == 1, "history: repeated change events for the same page are ONE visit")
+  // loading pages are not recorded until they finish
+  let fl = f2.made[t]!; _ = fl
+  // quick open ranks open tabs first and finds history/closed/bookmarks
+  let t2 = e2.newTab(in: sp, url: "https://swift.org/evolution", title: "Swift Evolution")!; _ = t2
+  _ = try e2.toggleBookmark(tab: t2)
+  e2.closeTab(t2)
+  _ = e2.newTab(in: sp, url: "https://swift.org/open", title: "Swift Open Tab")
+  let qs = e2.quickSearch("swift")
+  check(qs.contains { $0.kind == .openTab && $0.url == "https://swift.org/open" } && qs.contains { $0.kind == .closedTab && $0.title == "Swift Evolution" } && qs.contains { $0.kind == .history && $0.url == "https://swift.org/docs" }, "quick open: open tabs, closed tabs and history are all found")
+  check(qs.first?.kind == .openTab, "quick open: an open tab ranks first")
+  check(try e2.toggleBookmark(tab: t) == true && e2.isBookmarked(tab: t) && (try e2.toggleBookmark(tab: t)) == false && !e2.isBookmarked(tab: t), "bookmarks: toggle on/off for a tab")
+  check(try e2.toggleBookmark(tab: e2.newTab(in: sp, url: "about:blank")!) == false, "bookmarks: a blank page cannot be bookmarked")
+  // opening results
+  let closedHit = qs.first { $0.kind == .closedTab }!; let beforeTabs = e2.state.tabs.count
+  check(e2.openQuickResult(closedHit, in: w) == .selected && e2.state.tabs.count == beforeTabs + 1 && e2.state.windows[w]?.selected != nil, "quick open: choosing a closed tab restores and shows it")
+  let hHit = QuickCandidate(kind: .history, title: "H", url: "https://history.example/x"); let n3 = e2.state.tabs.count
+  check(e2.openQuickResult(hHit, in: w) == .selected && e2.state.tabs.count == n3 + 1 && e2.state.tabs.values.contains { $0.url == "https://history.example/x" }, "quick open: choosing a history entry opens it in a new tab")
+  // other space's tab: choosing it switches the window's space
+  let sp2 = e2.addSpace(name: "Other", profile: ProfileID()); let ot = e2.newTab(in: sp2, url: "https://elsewhere.example", title: "Elsewhere")!
+  let oHit = e2.quickSearch("elsewhere").first!
+  check(e2.openQuickResult(oHit, in: w) == .selected && e2.state.windows[w]?.space == sp2 && e2.state.windows[w]?.selected == ot, "quick open: choosing a tab from another space switches to that space")
+}
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

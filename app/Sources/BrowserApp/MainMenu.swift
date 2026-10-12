@@ -25,6 +25,7 @@ enum MainMenu {
       add(m, "New Window", #selector(AppDelegate.newWindow(_:)), "n")
       add(m, "New Space…", #selector(AppDelegate.newSpace(_:)), "n", [.command, .shift])
       add(m, "Open Location…", #selector(AppDelegate.focusAddress(_:)), "l")
+      add(m, "Quick Open…", #selector(AppDelegate.quickOpenCommand(_:)), "k")
       m.addItem(.separator())
       add(m, "Print…", #selector(AppDelegate.printPage(_:)), "p")
       m.addItem(.separator())
@@ -61,6 +62,11 @@ enum MainMenu {
       m.addItem(.separator())
       add(m, "Sleep Other Tabs", #selector(AppDelegate.sleepOtherTabs(_:)))
       add(m, "Memory & Tabs…", #selector(AppDelegate.showResources(_:)))
+    }
+    submenu("Bookmarks") { m in
+      m.delegate = target
+      add(m, "Bookmark This Page", #selector(AppDelegate.bookmarkPage(_:)), "d")       // static: a key equivalent must exist before the menu is ever opened
+      m.addItem(.separator())
     }
     submenu("Spaces") { m in m.delegate = target; m.addItem(withTitle: "(none)", action: nil, keyEquivalent: "") }
     submenu("Window") { m in

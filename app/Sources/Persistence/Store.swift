@@ -18,7 +18,7 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 /// Safety contract: an existing database must be `load()`ed successfully (or `quarantineAndReset()` after a failed load)
 /// before `save()` is allowed, so a read failure can never be followed by an empty save that wipes the user's sessions.
 public final class Store: @unchecked Sendable {
-  public static let schemaVersion = 3
+  public static let schemaVersion = 4
   private var db: OpaquePointer?
   private let lock = NSLock()
   private let path: String
@@ -85,6 +85,13 @@ public final class Store: @unchecked Sendable {
         ALTER TABLE archive ADD COLUMN profile TEXT;
         ALTER TABLE archive ADD COLUMN last_active REAL;
         CREATE TABLE tab_state(tab TEXT PRIMARY KEY, state BLOB NOT NULL, updated REAL NOT NULL);
+        """)
+      }
+      if v < 4 {   // v4: history (per profile, one row per URL with a visit counter) + bookmarks
+        try execLocked("""
+        CREATE TABLE history(profile TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visits INTEGER NOT NULL, last_visited REAL NOT NULL, url_l TEXT NOT NULL, title_l TEXT NOT NULL, PRIMARY KEY(profile, url));       -- *_l: Swift-lowercased copies (SQLite lower() is ASCII-only)
+        CREATE INDEX history_recent ON history(last_visited DESC);
+        CREATE TABLE bookmark(id TEXT PRIMARY KEY, profile TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, added REAL NOT NULL, ord INTEGER NOT NULL);
         """)
       }
       if v < Store.schemaVersion { try execLocked("PRAGMA user_version = \(Store.schemaVersion)") }
@@ -216,6 +223,72 @@ public final class Store: @unchecked Sendable {
     let rc = sqlite3_backup_step(b, -1); sqlite3_backup_finish(b)
     guard rc == SQLITE_DONE else { throw StoreError.sql("backup step rc=\(rc)") }
     chmod(dest, 0o600)
+  }
+
+  // MARK: history & bookmarks
+  public struct HistoryEntry: Equatable, Sendable { public var profile: ProfileID, url: String, title: String, visits: Int, lastVisited: Date }
+  public struct Bookmark: Equatable, Sendable { public var id: UUID, profile: ProfileID, url: String, title: String, added: Date }
+
+  /// One transaction for a batch of visits: upsert, counting visits and keeping the newest non-empty title.
+  public func recordVisits(_ visits: [(profile: ProfileID, url: String, title: String, at: Date)]) throws {
+    guard !visits.isEmpty else { return }
+    try transaction {
+      for v in visits {
+        try run("""
+        INSERT INTO history(profile,url,title,visits,last_visited,url_l,title_l) VALUES(?,?,?,1,?,?,?)
+        ON CONFLICT(profile,url) DO UPDATE SET visits = visits + 1, last_visited = MAX(last_visited, excluded.last_visited),
+          title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE title END,
+          title_l = CASE WHEN excluded.title <> '' THEN excluded.title_l ELSE title_l END
+        """, [.text(v.profile.raw.uuidString), .text(v.url), .text(v.title), .real(v.at.timeIntervalSinceReferenceDate), .text(v.url.lowercased()), .text(v.title.lowercased())])
+      }
+    }
+  }
+  /// Update only the title of an existing entry (titles usually arrive after the visit was recorded).
+  public func updateHistoryTitle(profile: ProfileID, url: String, title: String) throws {
+    guard !title.isEmpty else { return }
+    try transaction { try run("UPDATE history SET title = ?, title_l = ? WHERE profile = ? AND url = ?", [.text(title), .text(title.lowercased()), .text(profile.raw.uuidString), .text(url)]) }
+  }
+  /// Substring search (case-insensitive, no wildcard semantics: user input is never a LIKE pattern), newest first.
+  public func searchHistory(profile: ProfileID? = nil, query: String, limit: Int = 50) throws -> [HistoryEntry] {
+    lock.lock(); defer { lock.unlock() }
+    var out: [HistoryEntry] = []
+    let q = query.lowercased(); let lim = min(max(limit, 1), 500)
+    var sql = "SELECT profile,url,title,visits,last_visited FROM history WHERE (? = '' OR instr(url_l, ?) > 0 OR instr(title_l, ?) > 0)"
+    var binds: [Bind] = [.text(q), .text(q), .text(q)]
+    if let p = profile { sql += " AND profile = ?"; binds.append(.text(p.raw.uuidString)) }
+    sql += " ORDER BY last_visited DESC LIMIT \(lim)"
+    try queryLocked(sql, binds) { st in
+      guard let pid = UUID(uuidString: col(st, 0)) else { return }
+      out.append(HistoryEntry(profile: ProfileID(pid), url: col(st, 1), title: col(st, 2), visits: Int(sqlite3_column_int(st, 3)), lastVisited: Date(timeIntervalSinceReferenceDate: sqlite3_column_double(st, 4))))
+    }
+    return out
+  }
+  public func historyCount() throws -> Int { lock.lock(); defer { lock.unlock() }; var n = 0; try queryLocked("SELECT COUNT(*) FROM history") { n = Int(sqlite3_column_int64($0, 0)) }; return n }
+
+  public func addBookmark(profile: ProfileID, url: String, title: String, at: Date = Date()) throws -> UUID {
+    let id = UUID()
+    try transaction {
+      var existing: String?
+      try queryLocked("SELECT id FROM bookmark WHERE profile = ? AND url = ?", [.text(profile.raw.uuidString), .text(url)]) { existing = col($0, 0) }
+      if existing != nil { return }                                    // already bookmarked: keep the original
+      var next = 0; try queryLocked("SELECT COALESCE(MAX(ord), -1) + 1 FROM bookmark") { next = Int(sqlite3_column_int($0, 0)) }
+      try run("INSERT INTO bookmark(id,profile,url,title,added,ord) VALUES(?,?,?,?,?,?)", [.text(id.uuidString), .text(profile.raw.uuidString), .text(url), .text(title), .real(at.timeIntervalSinceReferenceDate), .int(next)])
+    }
+    return (try? bookmarks(profile: profile).first { $0.url == url }?.id) ?? id
+  }
+  public func removeBookmark(_ id: UUID) throws { try transaction { try run("DELETE FROM bookmark WHERE id = ?", [.text(id.uuidString)]) } }
+  public func bookmarks(profile: ProfileID? = nil) throws -> [Bookmark] {
+    lock.lock(); defer { lock.unlock() }
+    var out: [Bookmark] = []
+    try queryLocked("SELECT id,profile,url,title,added FROM bookmark" + (profile == nil ? "" : " WHERE profile = ?") + " ORDER BY ord", profile.map { [.text($0.raw.uuidString)] } ?? []) { st in
+      guard let i = UUID(uuidString: col(st, 0)), let p = UUID(uuidString: col(st, 1)) else { return }
+      out.append(Bookmark(id: i, profile: ProfileID(p), url: col(st, 2), title: col(st, 3), added: Date(timeIntervalSinceReferenceDate: sqlite3_column_double(st, 4))))
+    }
+    return out
+  }
+  /// Explicit user action only ("Clear History"): there is no automatic deletion of history.
+  public func clearHistory(profile: ProfileID? = nil) throws {
+    try transaction { if let p = profile { try run("DELETE FROM history WHERE profile = ?", [.text(p.raw.uuidString)]) } else { try execLocked("DELETE FROM history") } }
   }
 
   // MARK: per-tab restore state (WebKit interactionState: history + scroll). Separate from BrowserState saves: big, changes often.
