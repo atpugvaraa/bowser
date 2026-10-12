@@ -5,7 +5,7 @@ bad=$(git diff --cached -U0 2>/dev/null | grep -E '^\+' | grep -iE '(api[_-]?key
 [ -z "$bad" ] || { print -r -- "GATE FAIL: possible secret in staged diff:"; print -r -- "$bad"; exit 1; }
 if [ -f app/Package.swift ]; then
   (cd app && swift build -Xswiftc -warnings-as-errors >/tmp/_gate_build.log 2>&1) || { echo "GATE FAIL: core build"; grep -E 'error' /tmp/_gate_build.log | head -5; exit 1; }
-  out=$(cd app && swift run CoreChecks 2>&1); rc=$?
+  out=$(cd app && perl -e "alarm 240; exec @ARGV" swift run --skip-build CoreChecks 2>&1); rc=$?
   print -r -- "$out" | grep -E '^(FAIL|ALL|[0-9]+ CHECK)'
   [ $rc -eq 0 ] && print -r -- "$out" | grep -q '^ALL CHECKS PASSED$' && ! print -r -- "$out" | grep -q '^FAIL' || { echo "GATE FAIL: core checks (rc=$rc)"; exit 1; }
 fi

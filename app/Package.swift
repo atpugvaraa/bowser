@@ -5,10 +5,14 @@ import PackageDescription
 let package = Package(
   name: "Browser",
   platforms: [.macOS("15.4")],
-  products: [.library(name: "BrowserCore", targets: ["BrowserCore"]), .library(name: "Lifecycle", targets: ["Lifecycle"])],
+  products: [.library(name: "BrowserCore", targets: ["BrowserCore"]), .library(name: "Lifecycle", targets: ["Lifecycle"]), .library(name: "Persistence", targets: ["Persistence"]), .library(name: "EngineWebKit", targets: ["EngineWebKit"]), .library(name: "Resources", targets: ["Resources"])],
   targets: [
     .target(name: "BrowserCore"),
     .target(name: "Lifecycle", dependencies: ["BrowserCore"]),
-    .executableTarget(name: "CoreChecks", dependencies: ["BrowserCore", "Lifecycle"]),
+    .target(name: "Persistence", dependencies: ["BrowserCore"], linkerSettings: [.linkedLibrary("sqlite3")]),
+    .target(name: "EngineWebKit", dependencies: ["BrowserCore"]),
+    .target(name: "Resources", dependencies: ["BrowserCore"]),
+    .executableTarget(name: "EngineStress", dependencies: ["BrowserCore", "Lifecycle", "EngineWebKit"]),
+    .executableTarget(name: "CoreChecks", dependencies: ["BrowserCore", "Lifecycle", "Persistence", "Resources"]),
   ]
 )

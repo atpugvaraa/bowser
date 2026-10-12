@@ -1,0 +1,8 @@
+<!doctype html><meta charset=utf-8><body>b<script>
+const d=document.documentElement, out={};
+const done=()=>{ if(Object.keys(out).length==3) d.setAttribute('data-ext',JSON.stringify(out)); };
+function tag(name,el,src){ el.onload=()=>{out[name]='LOADED';done()}; el.onerror=()=>{out[name]='ERROR(blocked/failed)';done()}; el.src=src; document.body.appendChild(el); }
+tag('script_adsbygoogle',document.createElement('script'),'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js');
+tag('script_doubleclick',document.createElement('script'),'https://securepubads.g.doubleclick.net/tag/js/gpt.js');
+tag('img_doubleclick',document.createElement('img'),'https://googleads.g.doubleclick.net/pagead/id');
+</script>

@@ -3,7 +3,7 @@ import Foundation
 
 /// Why a tab may not be hibernated. Shown to the user ("explain why", master prompt §7).
 public enum Protection: String, Sendable, CaseIterable {
-  case active, audible, playingMedia, pictureInPicture, capturing, call, downloading, unsavedForm, upload, loading, userRule
+  case active, audible, recentlyAudible, playingMedia, pictureInPicture, capturing, call, devTools, downloading, unsavedForm, upload, loading, userRule
 }
 
 /// Learns, per host, how long you typically leave a tab before coming back (EWMA of idle gaps). Bounded size.
@@ -40,6 +40,7 @@ public struct PolicyConfig: Sendable, Codable {
   public var criticalFloor: TimeInterval = 5 * 60    // floor even under critical memory pressure
   public var gapFactor = 1.5                         // keep a tab live ~1.5x its usual idle gap
   public var pinnedMultiplier = 3.0
+  public var audibleGrace: TimeInterval = 10 * 60   // keep a tab live this long after its audio stops
   public var pressureScale = PressureTable<Double>(normal: 1.0, warning: 0.5, critical: 0.25)
   public var maxLive = PressureTable<Int>(normal: 60, warning: 40, critical: 20)
   public init() {}
@@ -53,6 +54,7 @@ public struct PolicyConfig: Sendable, Codable {
     c.criticalFloor = min(max(fin(c.criticalFloor, 5 * 60), 30), c.minGrace)
     c.gapFactor = min(max(fin(c.gapFactor, 1.5), 1), 10)
     c.pinnedMultiplier = min(max(fin(c.pinnedMultiplier, 3), 1), 20)
+    c.audibleGrace = min(max(fin(c.audibleGrace, 600), 0), 24 * 3600)
     func sc(_ x: Double) -> Double { min(max(fin(x, 1), 0.05), 1) }
     c.pressureScale = .init(normal: sc(c.pressureScale.normal), warning: sc(c.pressureScale.warning), critical: sc(c.pressureScale.critical))
     func ml(_ x: Int) -> Int { max(x, 1) }
@@ -68,14 +70,16 @@ public struct Decision: Sendable {
 }
 
 public enum HibernationPolicy {
-  public static func protections(_ t: TabInfo) -> [Protection] {
+  public static func protections(_ t: TabInfo, now: Date? = nil, audibleGrace: TimeInterval = 0) -> [Protection] {
     var p: [Protection] = []
     if t.isActive { p.append(.active) }
     if t.isAudible { p.append(.audible) }
+    if let n = now, let la = t.lastAudible, !t.isAudible, n.timeIntervalSince(la) < audibleGrace, n >= la { p.append(.recentlyAudible) }
     if t.isPlayingMedia { p.append(.playingMedia) }
     if t.isPictureInPicture { p.append(.pictureInPicture) }
     if t.isCapturing { p.append(.capturing) }
     if t.isInCall { p.append(.call) }
+    if t.isDevToolsOpen { p.append(.devTools) }
     if t.isDownloading { p.append(.downloading) }
     if t.hasUnsavedForm { p.append(.unsavedForm) }
     if t.hasInflightUpload { p.append(.upload) }
@@ -102,7 +106,7 @@ public enum HibernationPolicy {
     // Merge duplicate ids: protected if ANY copy is protected; freshest activity wins.
     var byID: [TabID: TabInfo] = [:], extra: [TabID: Set<Protection>] = [:]
     for t in rawTabs {
-      extra[t.id, default: []].formUnion(protections(t))
+      extra[t.id, default: []].formUnion(protections(t, now: now, audibleGrace: c.audibleGrace))
       if let o = byID[t.id] { if t.lastActive > o.lastActive { byID[t.id] = t } } else { byID[t.id] = t }
     }
     var live = 0

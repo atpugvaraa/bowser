@@ -1,0 +1,967 @@
+TOTAL 966
+_features	0	Optional(true)	JavaScriptCanOpenWindowsAutomatically	
+_features	0	Optional(false)	DeviceOrientationPermissionAPIEnabled	
+_features	0	Optional(true)	TemporaryTileCohortRetentionEnabled	
+_features	0	Optional(false)	TelephoneNumberParsingEnabled	
+_features	0	Optional(false)	TabsToLinks	
+_features	0	Optional(false)	DisabledAdaptationsMetaTagEnabled	
+_features	0	Optional(true)	DownloadAttributeEnabled	
+_features	0	Optional(false)	SuppressesIncrementalRendering	
+_features	0	Optional(false)	Standalone	
+_features	0	Optional(false)	EnableInheritURIQueryComponent	
+_features	0	Optional(true)	EncryptedMediaAPIEnabled	
+_features	0	Optional(false)	SpatialNavigationEnabled	
+_features	0	Optional(true)	SourceBufferChangeTypeEnabled	
+_features	0	Optional(true)	SmartInsertDeleteEnabled	
+_features	0	Optional(true)	ShrinksStandaloneImagesToFit	
+_features	0	Optional(false)	ShowsURLsInToolTipsEnabled	
+_features	0	Optional(false)	ShowsToolTipOverTruncatedText	
+_features	0	Optional(false)	ShouldUseServiceWorkerShortTimeout	
+_features	0	Optional(false)	ShouldSuppressTextInputFromEditingDuringProvisionalNavigation	
+_features	0	Optional(false)	ShouldRestrictBaseURLSchemes	
+_features	0	Optional(false)	ShouldRespectImageOrientation	
+_features	0	Optional(false)	ShouldPrintBackgrounds	
+_features	0	Optional(false)	ShouldIgnoreMetaViewport	
+_features	0	Optional(false)	ShouldEnableTextAutosizingBoost	
+_features	0	Optional(false)	ShouldDisplayTextDescriptions	
+_features	0	Optional(false)	ShouldDisplaySubtitles	
+_features	0	Optional(true)	ExtensibleSSOEnabled	
+_features	0	Optional(false)	ShouldDisplayCaptions	
+_features	0	Optional(false)	ShouldDecidePolicyBeforeLoadingQuickLookPreview	
+_features	0	Optional(false)	ShouldConvertPositionStyleOnCopy	
+_features	0	Optional(true)	ShouldConvertInvalidURLsToBlank	
+_features	0	Optional(true)	ShouldAllowUserInstalledFonts	
+_features	0	Optional(false)	ServiceWorkerEntitlementDisabledForTesting	
+_features	0	Optional(false)	ServiceControlsEnabled	
+_features	0	Optional(false)	SelectTrailingWhitespaceEnabled	
+_features	0	Optional(false)	ForceCompositingMode	
+_features	0	Optional(false)	ForceWebGLUsesLowPower	
+_features	0	Optional(true)	RubberBandingForSubScrollableRegionsEnabled	
+_features	0	Optional(false)	RequiresUserGestureToLoadVideo	
+_features	0	Optional(false)	RequiresUserGestureForVideoPlayback	
+_features	0	Optional(false)	RequiresUserGestureForMediaPlayback	
+_features	0	Optional(false)	RequiresUserGestureForAudioPlayback	
+_features	0	Optional(false)	RequiresPageVisibilityToPlayAudio	
+_features	0	Optional(false)	PunchOutWhiteBackgroundsInDarkMode	
+_features	0	Optional(true)	PictureInPictureAPIEnabled	
+_features	0	Optional(false)	PasswordEchoEnabled	
+_features	0	Optional(true)	PassiveTouchListenersAsDefaultOnDocument	
+_features	0	Optional(true)	PDFPluginHUDEnabled	
+_features	0	Optional(true)	PDFPluginEnabled	
+_features	0	Optional(false)	NeedsKeyboardEventDisambiguationQuirks	
+_features	0	Optional(false)	NeedsFrameNameFallbackToIdQuirk	
+_features	0	Optional(true)	HiddenPageCSSAnimationSuspensionEnabled	
+_features	0	Optional(false)	NeedsAdobeFrameReloadingQuirk	
+_features	0	Optional(false)	MockScrollbarsEnabled	
+_features	0	Optional(false)	MockScrollbarsControllerEnabled	
+_features	0	Optional(true)	MockCaptureDevicesPromptEnabled	
+_features	0	Optional(false)	MediaUserGestureInheritsFromDocument	
+_features	0	Optional(false)	MediaPreloadingEnabled	
+_features	0	Optional(true)	MediaDataLoadsAutomatically	
+_features	0	Optional(true)	MediaControlsScaleWithPageZoom	
+_features	0	Optional(true)	MediaControlsContextMenusEnabled	
+_features	0	Optional(false)	IncompleteImageBorderEnabled	
+_features	0	Optional(true)	IncrementalPDFLoadingEnabled	
+_features	0	Optional(true)	MediaCapabilitiesEnabled	
+_features	0	Optional(false)	InlineMediaPlaybackRequiresPlaysInlineAttribute	
+_features	0	Optional(true)	MathMLEnabled	
+_features	0	Optional(true)	InspectorStartsAttached	
+_features	0	Optional(true)	InspectorSupportsShowingCertificate	
+_features	0	Optional(true)	LowPowerVideoAudioBufferSizeEnabled	
+_features	0	Optional(false)	InterruptAudioOnPageVisibilityChangeEnabled	
+_features	0	Optional(false)	InterruptVideoOnPageVisibilityChangeEnabled	
+_features	0	Optional(false)	InvisibleAutoplayNotPermitted	
+_features	0	Optional(true)	LoadsImagesAutomatically	
+_features	0	Optional(true)	LoadDeferringEnabled	
+_features	0	Optional(true)	LinkPreloadEnabled	
+_features	0	Optional(true)	LinkPreconnect	
+_features	0	Optional(true)	LargeImageAsyncDecodingEnabled	
+_features	0	Optional(false)	JavaScriptCanAccessClipboard	
+_features	0	Optional(true)	JavaScriptMarkupEnabled	
+_features	0	Optional(true)	AcceleratedCompositingEnabled	
+_features	0	Optional(false)	AcceleratedCompositingForFixedPositionEnabled	
+_features	0	Optional(true)	WirelessPlaybackTargetAPIEnabled	
+_features	0	Optional(true)	WindowFocusRestricted	
+_features	0	Optional(true)	WebSocketEnabled	
+_features	0	Optional(false)	AggressiveTileRetentionEnabled	
+_features	0	Optional(false)	AllowContentSecurityPolicySourceStarToMatchAnyProtocol	
+_features	0	Optional(false)	AllowFileAccessFromFileURLs	
+_features	0	Optional(false)	AllowMultiElementImplicitSubmission	
+_features	0	Optional(false)	AllowTestOnlyIPC	
+_features	0	Optional(false)	AllowTestOnlyMockContentFilterIPC	
+_features	0	Optional(false)	AllowTestOnlyOriginAccessAllowListIPC	
+_features	0	Optional(true)	AllowsAirPlayForMediaPlayback	
+_features	0	Optional(true)	AllowsInlineMediaPlayback	
+_features	0	Optional(false)	AllowsInlineMediaPlaybackAfterFullscreen	
+_features	0	Optional(false)	AllowsPictureInPictureMediaPlayback	
+_features	0	Optional(true)	WebSecurityEnabled	
+_features	0	Optional(true)	WebAudioEnabled	
+_features	0	Optional(true)	AnimatedImageAsyncDecodingEnabled	
+_features	0	Optional(false)	WantsBalancedSetDefersLoadingBehavior	
+_features	0	Optional(false)	AppleMailPaginationQuirkEnabled	
+_features	0	Optional(true)	ApplePayCapabilityDisclosureAllowed	
+_features	0	Optional(false)	ApplePayEnabled	
+_features	0	Optional(false)	AsynchronousSpellCheckingEnabled	
+_features	0	Optional(true)	AudioControlsScaleWithPageZoom	
+_features	0	Optional(true)	AuthorAndUserStylesEnabled	
+_features	0	Optional(true)	VisualViewportEnabled	
+_features	0	Optional(true)	AutomaticallyForceEnableScrollingIfNeededToRevealUI	
+_features	0	Optional(false)	VideoQualityIncludesDisplayCompositingEnabled	
+_features	0	Optional(true)	VideoPresentationModeAPIEnabled	
+_features	0	Optional(true)	BackspaceKeyNavigationEnabled	
+_features	0	Optional(false)	VideoPresentationManagerEnabled	
+_features	0	Optional(false)	VideoFullscreenRequiresElementFullscreen	
+_features	0	Optional(true)	VP9DecoderEnabled	
+_features	0	Optional(false)	UsesSingleWebProcess	
+_features	0	Optional(false)	UsesEncodingDetector	
+_features	0	Optional(true)	UsesBackForwardCache	
+_features	0	Optional(false)	CaretBrowsingEnabled	
+_features	0	Optional(false)	UseSystemAppearance	
+_features	0	Optional(false)	ColorFilterEnabled	
+_features	0	Optional(false)	UsePreHTML5ParserQuirks	
+_features	0	Optional(true)	ContentChangeObserverEnabled	
+_features	0	Optional(true)	ContentDispositionAttachmentSandboxEnabled	
+_features	0	Optional(false)	ContextMenuQRCodeDetectionEnabled	
+_features	0	Optional(false)	UseImageDocumentForSubframePDF	
+_features	0	Optional(false)	DOMPasteAllowed	
+_features	0	Optional(false)	TreatsAnyTextCSSLinkAsStylesheet	
+_features	0	Optional(true)	ThreadedScrollingEnabled	
+_features	0	Optional(true)	DatabasesEnabled	
+_features	0	Optional(true)	TextInteractionEnabled	
+_features	0	Optional(true)	TextInputClientSelectionUpdatesEnabled	
+_features	0	Optional(true)	TextExtractionEnabled	
+_features	0	Optional(false)	TextAutosizingEnabled	
+_features	0	Optional(true)	TextAreasAreResizable	
+_features	0	Optional(false)	DeveloperExtrasEnabled	
+_features	0	Optional(true)	DeviceOrientationEventEnabled	
+_features	6	Optional(true)	TargetTextPseudoElementEnabled	Enable the ::target-text CSS pseudo-element
+_features	6	Optional(true)	OpenPseudoClassEnabled	Enable the :open CSS pseudo-class
+_features	4	Optional(false)	SelectShowPickerEnabled	Enable showPicker() method on <select>
+_features	2	Optional(true)	IsAriaLiveRegionManagementEnabled	Turn on ARIA live-region management within WebKit
+_features	0	Optional(true)	AVFoundationEnabled	Enable AVFoundation
+_features	1	Optional(false)	AcceleratedFiltersEnabled	Accelerated CSS and SVG filter rendering
+_features	7	Optional(true)	AccessHandleEnabled	Enable AccessHandle API
+_features	2	Optional(false)	DOMTestingAPIsEnabled	Enable additional testing APIs for DOM objects
+_features	0	Optional(true)	AllowMediaContentTypesRequiringHardwareSupportAsFallback	Allow Media Content Types Requirining Hardware As Fallback
+_features	0	Optional(false)	AllowPrivacySensitiveOperationsInNonPersistentDataStores	Allow Privacy-Sensitive Operations in Non-Persistent Data Stores
+_features	6	Optional(true)	AllowWebGLInWorkers	
+_features	2	Optional(true)	PerElementSpeakerSelectionEnabled	Allow per media element speaker device selection
+_features	2	Optional(true)	AllowMultipleCommitLayerTreePending	Allow requesting CommitLayerTree before the previous has completed
+_features	2	Optional(true)	ExposeSpeakersWithoutMicrophoneEnabled	Allow selection of speaker device without related microphone
+_features	2	Optional(true)	ExposeSpeakersEnabled	Allow speaker device selection
+_features	0	Optional(false)	AllowTopNavigationToDataURLs	
+_features	3	Optional(false)	AllowUniversalAccessFromFileURLs	
+_features	2	Optional(false)	AlwaysAllowLocalWebarchive	Enable always allowing loading local Web Archive
+_features	2	Optional(false)	SWVPDecodersAlwaysEnabled	Always enable VPx software decoders
+_features	1	Optional(false)	AppBadgeEnabled	Enable App Badge
+_features	1	Optional(false)	AppHighlightsEnabled	Enable App Highlights
+_features	2	Optional(true)	UseAppKitGestures	Use AppKit Gestures
+_features	2	Optional(true)	AsyncFrameScrollingEnabled	Perform frame scrolling off the main thread
+_features	2	Optional(true)	AsyncOverflowScrollingEnabled	Perform overflow scrolling off the main thread
+_features	7	Optional(true)	AsyncClipboardAPIEnabled	Enable the async clipboard API
+_features	0	Optional(false)	AttachmentElementEnabled	Allow the insertion of attachment elements
+_features	0	Optional(false)	AttachmentWideLayoutEnabled	Use horizontal wide-layout attachment style, requires Attachment Element
+_features	6	Optional(true)	ExtendedAudioDescriptionsEnabled	Enable extended audio descriptions for video
+_features	6	Optional(true)	AudioDescriptionsEnabled	Enable standard audio descriptions for video
+_features	7	Optional(true)	DOMAudioSessionEnabled	Enable AudioSession API
+_features	4	Optional(false)	DOMAudioSessionFullEnabled	Enable AudioSession full API
+_features	2	Optional(false)	AutomaticallyAdjustsViewScaleUsingMinimumEffectiveDeviceWidth	Automatically Adjust View Scale to Fit Min. Effective Device Width
+_features	7	Optional(true)	BeaconAPIEnabled	Beacon API
+_features	2	Optional(false)	BidiContentAwarePasteEnabled	Bidi content aware paste
+_features	6	Optional(true)	BroadcastChannelEnabled	BroadcastChannel API
+_features	1	Optional(false)	BuiltInNotificationsEnabled	Enable built-in WebKit managed notifications
+_features	2	Optional(false)	CSSInternalAutoBaseParsingEnabled	Enable parsing -internal-auto-base() in author sheet
+_features	5	Optional(false)	CSS3DTransformBackfaceVisibilityInteroperabilityEnabled	Enable 3D transform behavior for backface-visibility that is specification-compliant but backwards incompatibl
+_features	2	Optional(true)	CSSPickerPseudoElementEnabled	Enable the CSS ::picker() pseudo-element
+_features	4	Optional(false)	CSSCounterStyleAtRuleImageSymbolsEnabled	Enable support for <image> symbols in CSS @counter-style rules
+_features	4	Optional(false)	CSSFunctionAtRuleEnabled	Enable CSS @function rule
+_features	6	Optional(true)	AccentColorEnabled	Enable accent-color CSS property
+_features	6	Optional(true)	CSSAnchorPositioningEnabled	Enable CSS Anchor Positioning
+_features	6	Optional(true)	DevolvableWidgetsEnabled	Enable support for devolvable widgets
+_features	4	Optional(false)	CSSInputSecurityEnabled	Enable input-security CSS property
+_features	6	Optional(true)	OverscrollBehaviorEnabled	Enable CSS overscroll-behavior
+_features	4	Optional(false)	CSSPaintingAPIEnabled	Enable the CSS Painting API
+_features	4	Optional(false)	CSSRhythmicSizingEnabled	Enable CSS Rhythmic Sizing properties
+_features	1	Optional(false)	CSSRubyDisplayTypesInAuthorStylesEnabled	Enable CSS Ruby Display types in author styles
+_features	6	Optional(true)	CSSScrollAnchoringEnabled	Enable CSS Scroll Anchoring
+_features	4	Optional(false)	CSSScrollStateContainerQueriesEnabled	Enable scroll-state value for container-type CSS property
+_features	2	Optional(true)	CSSSelectorJITCompilerEnabled	Enable the JIT compiler for CSS selectors
+_features	1	Optional(false)	SpringTimingFunctionEnabled	CSS Spring Animation prototype
+_features	6	Optional(true)	CSSTreeCountingFunctionsEnabled	Enable support for CSS Values and Units Module Level 5 tree counting functions sibling-count() and sibling-ind
+_features	4	Optional(false)	CSSTypedOMColorEnabled	Enable the CSS Typed OM Color support
+_features	6	Optional(true)	CSSURLModifiersEnabled	Enable support for CSS Values and Units Module Level 5 URL modifiers
+_features	4	Optional(false)	CSSURLIntegrityModifierEnabled	Enable support for CSS Values and Units Module Level 5 URL integrity() modifier
+_features	6	Optional(true)	CSSUnprefixedBackdropFilterEnabled	Enable unprefixed backdrop-filter CSS property
+_features	4	Optional(false)	CSSAppearanceBaseEnabled	Enable base value for CSS appearance
+_features	5	Optional(false)	CSSAttrSubstitutionFunctionEnabled	Enable CSS Values 5 attr() arbitrary substitution function
+_features	6	Optional(true)	CSSAxisRelativePositionKeywordsEnabled	Enable support for CSS Values and Units Module Level 5 axis relative keywords in <position>
+_features	5	Optional(false)	CSSCalcMixEnabled	Enable support for CSS calc-mix()
+_features	5	Optional(false)	CSSColorLayersEnabled	Enable support for CSS color-layers()
+_features	4	Optional(false)	CSSCornerShapeEnabled	Enable support for CSS corner-shape property
+_features	5	Optional(false)	CSSDPropertyEnabled	Enable support for the CSS d property and SVG d presentation attribute
+_features	6	Optional(true)	GridLanesEnabled	Enable CSS display: grid-lanes
+_features	4	Optional(false)	CSSDynamicRangeLimitMixEnabled	Enable support for CSS dynamic-range-limit-mix(), but animation stays unsupported
+_features	4	Optional(false)	CSSConstrainedDynamicRangeLimitEnabled	Enable support for CSS dynamic-range-limit value constrained
+_features	6	Optional(true)	CSSFieldSizingEnabled	Enable field-sizing CSS property
+_features	5	Optional(false)	CSSFontSynthesisStyleObliqueOnlyEnabled	Enable the oblique-only value for the font-synthesis-style CSS property
+_features	5	Optional(false)	CSSFontVariantEmojiEnabled	Enable the font-variant-emoji CSS property
+_features	4	Optional(false)	CSSIdentFunctionEnabled	Enable the CSS Values 5 ident() function
+_features	5	Optional(false)	CSSLineClampEnabled	Enable CSS line-clamp
+_features	1	Optional(false)	CSSLineFitEdgeEnabled	Enable CSS line-fit-edge
+_features	6	Optional(true)	CSSMathDepthEnabled	Enable support for math-depth from MathML Core.
+_features	4	Optional(false)	CSSObjectViewBoxEnabled	Enable support for CSS object-view-box property
+_features	4	Optional(false)	CSSOverflowClipMarginEnabled	Enable CSS overflow-clip-margin
+_features	6	Optional(true)	CSSRandomFunctionEnabled	Enable support for CSS Values and Units Module Level 5 random()
+_features	4	Optional(false)	CSSRandomItemFunctionEnabled	Enable support for CSS Values and Units Module Level 5 random-item()
+_features	6	Optional(true)	CSSScrollbarColorEnabled	Enable scrollbar-color CSS property
+_features	6	Optional(true)	CSSScrollbarGutterEnabled	Enable scrollbar-gutter CSS property
+_features	6	Optional(true)	CSSScrollbarWidthEnabled	Enable scrollbar-width CSS property
+_features	6	Optional(true)	CSSTextDecorationLineErrorValues	Enable support for spelling-error and grammar-error values on text-decoration-line
+_features	4	Optional(false)	CSSTextGroupAlignEnabled	Enable text-group-align CSS property
+_features	4	Optional(false)	CSSTextJustifyEnabled	Enable the property text-justify, defined in CSS Text 3
+_features	4	Optional(false)	CSSTextSpacingTrimEnabled	Enable the property text-spacing-trim, defined in CSS Text 4
+_features	4	Optional(false)	CSSTextTransformMathAutoEnabled	Enable the math-auto text transform.
+_features	6	Optional(true)	CSSTextWrapPrettyEnabled	Enable the pretty value for text-wrap-style
+_features	0	Optional(true)	CacheAPIEnabled	Cache API
+_features	6	Optional(true)	CanvasColorSpaceEnabled	Enable use of predefined canvas color spaces
+_features	4	Optional(false)	CanvasColorTypeEnabled	Allow different color types and pixel formats in 2D canvas
+_features	4	Optional(false)	CanvasFiltersEnabled	Canvas Filters
+_features	4	Optional(false)	CanvasLayersEnabled	Enable Canvas Layers
+_features	0	Optional(true)	CanvasUsesAcceleratedDrawing	
+_features	2	Optional(true)	CaptionDisplaySettingsEnabled	Enable Caption Display Settings API
+_features	2	Optional(false)	ChildProcessDebuggabilityEnabled	Enable stopping child processes with a debugger
+_features	6	Optional(true)	ClearSiteDataHTTPHeaderEnabled	Enable Clear-Site-Data HTTP Header support
+_features	4	Optional(false)	ClearSiteDataExecutionContextsSupportEnabled	Enable Clear-Site-Data: 'executionContexts' support
+_features	5	Optional(false)	CloseWatcherEnabled	Enable Close Watcher API including dialog closedby attribute
+_features	7	Optional(true)	InputTypeColorEnabled	Enable input elements of type color
+_features	2	Optional(false)	CompositingBordersVisible	
+_features	2	Optional(false)	CompositingRepaintCountersVisible	
+_features	6	Optional(true)	CompressionStreamEnabled	Enable Compression Stream API
+_features	2	Optional(false)	ConsistentQueryParameterFilteringInternalQuirkEnabled	Enable internal consistent query parameter filtering
+_features	6	Optional(true)	ConsistentQueryParameterFilteringQuirkEnabled	Enable consistent query parameter filtering
+_features	4	Optional(false)	ContactPickerAPIEnabled	Enable the Contact Picker API
+_features	2	Optional(false)	ContentInsetBackgroundFillEnabled	Fill content insets with background colors
+_features	4	Optional(false)	CookieStoreManagerEnabled	Enable Cookie Store API CookieStoreManager which controls cookie change subscriptions for Service Workers
+_features	6	Optional(true)	CookieStoreAPIEnabled	Enable Cookie Store API
+_features	0	Optional(true)	CookieEnabled	
+_features	1	Optional(false)	InputMethodUsesCorrectKeyEventOrder	
+_features	6	Optional(true)	CrossOriginEmbedderPolicyEnabled	Support for Cross-Origin-Embedder-Policy (COEP) header
+_features	6	Optional(true)	CrossOriginOpenerPolicyEnabled	Support for Cross-Origin-Opener-Policy (COOP) header
+_features	0	Optional(true)	CustomPasteboardDataEnabled	Enable custom clipboard types and better security model for clipboard API.
+_features	2	Optional(true)	DOMPasteAccessRequestsEnabled	Enable DOM Paste Access Requests
+_features	1	Optional(false)	MoveBeforeEnabled	
+_features	4	Optional(true)	MutationEventsEnabled	
+_features	0	Optional(true)	DOMTimersThrottlingEnabled	
+_features	0	Optional(true)	DataTransferItemsEnabled	Enables DataTransferItem in the clipboard API
+_features	7	Optional(true)	DataListElementEnabled	Enable datalist elements
+_features	7	Optional(true)	InputTypeDateEnabled	Enable input elements of type date
+_features	0	Optional(true)	DateTimeInputsEditableComponentsEnabled	Enable multiple editable components in date/time inputs
+_features	6	Optional(true)	DeclarativeWebPush	Enable Declarative Web Push
+_features	6	Optional(true)	ShouldDeferAsynchronousScriptsUntilAfterDocumentLoadOrFirstPaint	Defer async scripts until DOMContentLoaded or first-paint
+_features	4	Optional(false)	CoreMathMLDeprecateLegacyMathvariant	Align the mathvariant attribute with MathML Core, disabling all variants except italic.
+_features	4	Optional(false)	DeprecationReportingEnabled	Enable Deprecation Reporting
+_features	3	Optional(false)	DetachableMediaSourceEnabled	Detachable Media Source API
+_features	0	Optional(false)	DiagnosticLoggingEnabled	
+_features	6	Optional(false)	DigitalCredentialsEnabled	Enable the Digital Credentials API
+_features	0	Optional(true)	DirectoryUploadEnabled	input.webkitdirectory / dataTransferItem.webkitGetAsEntry()
+_features	3	Optional(false)	IsThirdPartyCookieBlockingDisabled	Disable full third-party cookie blocking when Intelligent Tracking Prevention is enabled
+_features	3	Optional(false)	IsFirstPartyWebsiteDataRemovalDisabled	Disable removal of all non-cookie website data after seven days of no user interaction when Intelligent Tracki
+_features	1	Optional(false)	AnonymousBlockGenerationDisabled	Disable anonymous block generation for mixed blocks
+_features	4	Optional(false)	MathMLDisableHrefOnNonAnchorElement	The only MathML element on which href is allowed is <a>.
+_features	2	Optional(true)	ShouldDropNearSuspendedAssertionAfterDelay	Causes processes to fully suspend after a delay
+_features	1	Optional(false)	DynamicSiteInterventionsEnabled	Enable dynamic site interventions for broken websites
+_features	7	Optional(true)	EmbedElementEnabled	Embed Element
+_features	2	Optional(true)	EnableAccessibilityOnDemand	Enable Accessibility On Demand
+_features	0	Optional(true)	AccessibilityTextStitchingEnabled	Stitch adjacent text elements into one in the accessibility tree
+_features	6	Optional(true)	CanvasFingerprintingQuirkEnabled	
+_features	6	Optional(true)	EnableElementCurrentCSSZoom	Enable Element.currentCSSZoom
+_features	6	Optional(true)	EnhancedSecurityHeuristicsEnabled	Triggers EnhancedSecurity when insecure HTTP loads occur
+_features	2	Optional(false)	EnumeratingAllNetworkInterfacesEnabled	
+_features	2	Optional(true)	EnumeratingVisibleNetworkInterfacesEnabled	
+_features	2	Optional(true)	ICECandidateFilteringEnabled	Enable ICE Candidate Filtering
+_features	0	Optional(true)	LegacyEncryptedMediaAPIEnabled	Enable legacy EME API
+_features	2	Optional(false)	MockCaptureDevicesEnabled	Enable Mock Capture Devices
+_features	1	Optional(true)	BackgroundWebContentRunningBoardThrottlingEnabled	Enable background web content throttling via RunningBoard
+_features	4	Optional(false)	BackgroundFetchAPIEnabled	Enable background-fetch API
+_features	2	Optional(false)	EnableDebuggingFeaturesInSandbox	Enable debugging features in sandbox
+_features	4	Optional(false)	CFNetworkNetworkLoaderEnabled	Enable experimental network loader
+_features	2	Optional(false)	ExperimentalSandboxEnabled	Enable experimental sandbox features
+_features	0	Optional(true)	BlobFileAccessEnforcementEnabled	Validate file backed blobs were created by the correct web process
+_features	2	Optional(false)	HTMLEnhancedSelectParsingQuirkEnabled	Enable enhanced HTML select element parsing quirk for specific applications
+_features	6	Optional(true)	HTMLEnhancedSelectParsingEnabled	Enable enhanced HTML select element parsing
+_features	6	Optional(true)	HTMLEnhancedSelectEnabled	Enable enhanced HTML select element
+_features	6	Optional(true)	EnhancedSecurityLinksEnabled	Enables additional Enhanced Security support for certain links
+_features	2	Optional(true)	EnterKeyHintEnabled	Enable the enterKeyHint HTML attribute
+_features	3	Optional(false)	EnumeratedARIAAttributeReflectionEnabled	Enable enumerated ARIA attributes
+_features	6	Optional(true)	EvaluationTimeZoomEnabled	Enables used zoom value to be applied during layout and avoid applying at style-build time
+_features	6	Optional(true)	EventTimingEnabled	Enable the Event Timing API and supporting instrumentation
+_features	2	Optional(true)	EventHandlerDrivenSmoothKeyboardScrollingEnabled	Enable EventHandler driven smooth keyboard scrolling
+_features	7	Optional(false)	MediaSessionCoordinatorEnabled	Enable experimental MediaSession coordinator API
+_features	7	Optional(false)	MediaSessionPlaylistEnabled	Enable experimental MediaSession playlist API
+_features	3	Optional(false)	WebAssemblyDebuggerEnabled	Enable LLDB debugging support for WebAssembly (requires new tab)
+_features	2	Optional(true)	ExposeCaptureDevicesAfterCaptureEnabled	Expose all capture devices when one is used
+_features	2	Optional(true)	ExposeDefaultSpeakerAsSpecificDeviceEnabled	Expose the system default speaker as a specific device
+_features	2	Optional(true)	ExtendedProofreadingEnabled	Enable Extended Proofreading
+_features	3	Optional(false)	FTPEnabled	FTP support enabled
+_features	2	Optional(true)	FacebookLiveRecordingQuirkEnabled	Enable Facebook Live Recording Quirk
+_features	7	Optional(true)	FileSystemEnabled	Enable File System API
+_features	5	Optional(false)	FileSystemHandleSerializationEnabled	Enable FileSystemHandle for postMessage() and structuredClone()
+_features	6	Optional(true)	FileSystemWritableStreamEnabled	Enable File System WritableStream API
+_features	0	Optional(true)	FileReaderAPIEnabled	FileReader API
+_features	5	Optional(false)	FilterLinkDecorationByDefaultEnabled	Enable Filtering Link Decoration
+_features	4	Optional(false)	FindInVideoEnabled	Include video subtitle/caption cues in Find-in-Page results
+_features	2	Optional(false)	ForceEnhancedSecurity	Force all navigations to use Enhanced Security
+_features	2	Optional(false)	ForceLockdownFontParserEnabled	Forcing the Lockdown Mode Safe Font Parser independently from Lockdown Mode state
+_features	2	Optional(false)	EnhancedSecurityForceDisabled	Disables Enhanced Security for all navigations
+_features	2	Optional(true)	FormControlRefreshEnabled	Enable form control refresh for Cocoa platforms
+_features	2	Optional(false)	IFrameResourceMonitoringTestingSettingsEnabled	Use Resource Monitoring Settings for testing
+_features	2	Optional(false)	IFrameResourceMonitoringEnabled	Enable Usage Monitoring of Frame Resource Support
+_features	1	Optional(false)	FullScreenKeyboardLock	Fullscreen API based Keyboard Lock
+_features	0	Optional(false)	FullScreenEnabled	Fullscreen API
+_features	2	Optional(true)	CaptureAudioInGPUProcessEnabled	Enable audio capture in GPU Process
+_features	2	Optional(true)	BlockMediaLayerRehostingInWebContentProcess	GPU Process: Block Media Layer Re-hosting in WebContent process
+_features	6	Optional(true)	UseGPUProcessForCanvasRenderingEnabled	Enable canvas rendering in GPU Process
+_features	6	Optional(true)	UseGPUProcessForDOMRenderingEnabled	Enable DOM rendering in GPU Process
+_features	0	Optional(true)	UseGPUProcessForMediaEnabled	Do all media loading and playback in the GPU Process
+_features	7	Optional(true)	UseGPUProcessForDisplayCapture	Display capture in GPU Process
+_features	2	Optional(true)	CaptureVideoInGPUProcessEnabled	Enable video capture in GPU Process
+_features	2	Optional(true)	UseGPUProcessForWebGLEnabled	Process all WebGL operations in GPU Process
+_features	0	Optional(true)	WebRTCPlatformCodecsInGPUProcessEnabled	Enable WebRTC Platform Codecs in GPU Process
+_features	4	Optional(false)	GamepadTriggerRumbleEnabled	Support for Gamepad trigger vibration
+_features	6	Optional(true)	GamepadVibrationActuatorEnabled	Support for Gamepad.vibrationActuator
+_features	0	Optional(true)	GamepadsEnabled	Web Gamepad API support
+_features	7	Optional(true)	GenericCueAPIEnabled	Enable Generic Text Track Cue API
+_features	0	Optional(true)	GeolocationAPIEnabled	Enable Geolocation API
+_features	6	Optional(true)	GetBoundingClientRectZoomedEnabled	Get(Bounding)ClientRect API return a zoomed rect
+_features	6	Optional(true)	GraphicsContextFiltersEnabled	GraphicsContext Filter Rendering
+_features	2	Optional(true)	AcceleratedDrawingEnabled	Enable GraphicsLayer accelerated drawing
+_features	6	Optional(true)	HDRAcceleratedApplyGainMapEnabled	Enable HDR Accelerated Apply GainMap
+_features	6	Optional(true)	ModelElementEnabled	Enable HTML <model> element
+_features	4	Optional(false)	ModelDocumentEnabled	Enable HTML <model> element for model documents
+_features	0	Optional(true)	InteractiveFormValidationEnabled	HTML interactive form validation
+_features	0	Optional(true)	MediaEnabled	Enable HTML media elements <audio>, <video> and <track>
+_features	6	Optional(true)	InputTypeColorEnhancementsEnabled	Enable HTML alpha and colorspace attribute support for input elements of type color
+_features	6	Optional(true)	DetailsAutoExpandEnabled	Enable HTML auto-expanding <details>
+_features	6	Optional(true)	CommandAttributesEnabled	Enable HTML command & commandfor attribute support
+_features	6	Optional(true)	PopoverAttributeEnabled	Enable HTML popover attribute support
+_features	6	Optional(true)	SwitchControlEnabled	Enable HTML switch control
+_features	4	Optional(false)	HTTPSByDefaultEnabled	Enable HTTPS-by-default (HTTPS-First)
+_features	0	Optional(false)	HiddenPageDOMTimerThrottlingAutoIncreases	
+_features	0	Optional(true)	HiddenPageDOMTimerThrottlingEnabled	Enable hidden page DOM timer throttling
+_features	2	Optional(true)	HorizontalBannerViewOverlaysEnabled	Horizontal Banner View Overlays
+_features	2	Optional(false)	HostedBlurMaterialInMediaControlsEnabled	Enable hosted blur material in media controls
+_features	2	Optional(true)	IOSurfaceLosslessCompressionEnabled	Use losslessly compressed IOSurfaces
+_features	3	Optional(false)	ItpDebugModeEnabled	Intelligent Tracking Prevention Debug Mode
+_features	0	Optional(false)	TextAutosizingUsesIdempotentMode	Use idempotent text autosizing mode
+_features	2	Optional(false)	IgnoreIframeEmbeddingProtectionsEnabled	Ignores X-Frame-Options and CSP ancestors
+_features	1	Optional(false)	ImageAnalysisDuringFindInPageEnabled	Trigger image analysis when performing Find-in-Page
+_features	6	Optional(true)	ImageCaptureEnabled	Enable Image Capture API
+_features	1	Optional(false)	ImageControlsEnabled	Enable image controls
+_features	2	Optional(true)	IncludeIgnoredInCoreAXTree	When true, accessibility-is-ignored is not used to build the core, platform-agnostic accessibility tree, and i
+_features	0	Optional(true)	IndexedDBAPIEnabled	IndexedDB API
+_features	6	Optional(true)	IndexedDBSQLiteMemoryBackingStoreEnabled	Use SQLite in-memory database for ephemeral IndexedDB instead of MemoryIDBBackingStore
+_features	5	Optional(false)	IndexedDBGetAllRecordsAndGetAllOptionsEnabled	Enable the getAllRecords() API on IDBObjectStore/IDBIndex and enable getAll()/getAllKeys() to accept IDBGetAll
+_features	0	Optional(false)	IsAccessibilityIsolatedTreeEnabled	Enable an accessibility hierarchy for VoiceOver that can be accessed on a secondary thread for improved perfor
+_features	7	Optional(true)	JavaScriptEnabled	Enable JavaScript
+_features	2	Optional(false)	LayerBasedSVGEngineForceLayerCreationEnabled	Force the layer-based SVG Engine (LBSE) to create a RenderLayer for every SVG renderer (debugging only)
+_features	6	Optional(true)	LargestContentfulPaintEnabled	Enable Largest Contentful Paint performance entries
+_features	1	Optional(false)	LayerBasedSVGEngineEnabled	Enable next-generation layer-based SVG Engine (LBSE)
+_features	7	Optional(true)	LazyIframeLoadingEnabled	Enable lazy iframe loading support
+_features	6	Optional(true)	LazyImageLoadingEnabled	Enable lazy image loading support
+_features	3	Optional(true)	FontFaceSetConstructorEnabled	Legacy FontFaceSet Constructor API
+_features	2	Optional(false)	LegacyLineLayoutVisualCoverageEnabled	Enable legacy line layout visual coverage
+_features	3	Optional(false)	ShowModalDialogEnabled	Legacy showModalDialog() API
+_features	2	Optional(true)	MediaCaptureRequiresSecureConnection	Limit Media Capture to Secure Sites
+_features	3	Optional(false)	LimitedMatroskaSupportEnabled	Enable H264 and PCM with WebM Player and MediaRecorder
+_features	1	Optional(false)	LinkSanitizerEnabled	Enable link sanitizer
+_features	6	Optional(true)	LinkPreconnectEarlyHintsEnabled	Enable link rel=preconnect via early hints
+_features	4	Optional(false)	LinkPrefetchEnabled	Enable LinkedPrefetch
+_features	6	Optional(true)	LoadWebArchiveWithEphemeralStorageEnabled	Enable loading web archive with ephemeral storage
+_features	2	Optional(false)	LocalFileContentSniffingEnabled	Enable Local File Content Sniffing
+_features	1	Optional(false)	LocalNetworkAccessEnabled	Enable Local Network Access
+_features	7	Optional(true)	LocalStorageEnabled	Enable Local Storage
+_features	6	Optional(true)	LockdownFontParserEnabled	Try parsing Web fonts with safe font parser in Lockdown Mode
+_features	2	Optional(false)	LogsPageMessagesToSystemConsoleEnabled	Enable logging page messages to system console
+_features	4	Optional(false)	LoginStatusAPIEnabled	Enable the proposed Login Status API
+_features	5	Optional(false)	MediaControlsMacInlineSizeSpecsEnabled	Adopt new size specs for media controls
+_features	0	Optional(false)	MainContentUserGestureOverrideEnabled	Enable main content user gesture override
+_features	7	Optional(true)	ManagedMediaSourceEnabled	Managed Media Source API
+_features	7	Optional(true)	ManagedMediaSourceNeedsAirPlay	Managed Media Source Requires AirPlay source
+_features	1	Optional(false)	CoreMathMLEnabled	Disable features removed from the MathML Core spec.
+_features	7	Optional(true)	MediaCapabilitiesExtensionsEnabled	Media Capabilities Extensions
+_features	0	Optional(true)	MediaPlaybackEnabled	Enable media playback functionalities
+_features	7	Optional(true)	MediaSessionEnabled	Media Session API
+_features	0	Optional(true)	MediaSourceEnabled	Media Source API
+_features	0	Optional(false)	MediaDevicesEnabled	Enable media devices
+_features	6	Optional(true)	MediaRecorderEnabledWebM	Enable WebM support with MediaRecorder
+_features	7	Optional(true)	MediaRecorderEnabled	MediaRecorder
+_features	6	Optional(true)	MediaSessionCaptureToggleAPIEnabled	Enable MediaSession capture related API
+_features	4	Optional(false)	MediaSessionExtendedActionsEnabled	Enable MediaSession hangup, previousslide, nextslide, and enterpictureinpicture actions
+_features	6	Optional(true)	MediaSourceInWorkerEnabled	MediaSource in a Worker
+_features	6	Optional(true)	MediaSourcePrefersDecompressionSession	MediaSource prefers DecompressionSession
+_features	7	Optional(true)	MediaStreamTrackProcessingEnabled	Enable MediaStreamTrack Processing
+_features	5	Optional(false)	MediaStreamTrackHandleEnabled	Enable MediaStreamTrackHandle
+_features	4	Optional(false)	MetaViewportInteractiveWidgetEnabled	Enable the interactive-widget attribute on the viewport meta element
+_features	2	Optional(true)	MomentumScrollingAnimatorEnabled	Generate momentum events in WebKit instead of using those delivered by the system
+_features	0	Optional(false)	InputTypeMonthEnabled	Enable input elements of type month
+_features	4	Optional(false)	MultiProcessBackForwardCacheEnabled	Enable back/forward cache when site isolation is active
+_features	2	Optional(false)	MuteCameraOnMicrophoneInterruptionEnabled	Mute Camera on Microphone Interruption
+_features	6	Optional(true)	NavigationAPIEnabled	Enable Navigation API
+_features	2	Optional(false)	NavigatorUserAgentDataJavaScriptAPIEnabled	Enable the navigator.userAgentData JavaScript API
+_features	0	Optional(true)	NeedsSiteSpecificQuirks	Enable site-specific quirks
+_features	0	Optional(true)	NeedsStorageAccessFromFileURLsQuirk	
+_features	6	Optional(true)	FlexFormattingContextIntegrationEnabled	Enable next-generation flex layout integration (FFC)
+_features	6	Optional(true)	GridFormattingContextIntegrationEnabled	Enable next-generation grid layout integration (GFC)
+_features	2	Optional(true)	NotificationEventEnabled	NotificationEvent and ServiceWorkerRegistration.showNotification() support
+_features	6	Optional(true)	NotificationsEnabled	Enable the Notifications API
+_features	4	Optional(false)	ObservableEnabled	Support for the Observable API
+_features	2	Optional(true)	AccessibilityThreadHitTestingEnabled	Serve accessibility hit tests off the main-thread
+_features	6	Optional(true)	OffscreenCanvasInWorkersEnabled	Support for the OffscreenCanvas APIs in Workers
+_features	6	Optional(true)	OffscreenCanvasEnabled	Support for the OffscreenCanvas APIs
+_features	2	Optional(true)	EnableOpaqueLoadingForMedia	Enable opaque loading for media
+_features	2	Optional(true)	OpportunisticSweepingAndGarbageCollectionEnabled	Enable Opportunistic Sweeping and GC
+_features	6	Optional(true)	OptInPartitionedCookiesEnabled	Enable opt-in partitioned cookies
+_features	6	Optional(true)	OriginAPIEnabled	Enable the Origin API
+_features	5	Optional(false)	OriginAgentClusterEnabled	Support for the Origin-Agent-Cluster HTTP response header and window.originAgentCluster getter
+_features	2	Optional(true)	PageVisibilityBasedProcessSuppressionEnabled	Enable page visibility-based process suppression
+_features	6	Optional(true)	PermissionsAPIEnabled	Enable Permissions API
+_features	2	Optional(true)	PictureInPicturePlaybackStateEnabled	Picture-in-Picture Playback State Enabled
+_features	2	Optional(true)	PointerLockEnabled	Enable the Pointer Lock API
+_features	6	Optional(true)	PreferPageRenderingUpdatesNear60FPSEnabled	Prefer page rendering updates near 60 frames per second rather than using the display's refresh rate
+_features	6	Optional(true)	VideoFullsceenPrefersMostVisibleHeuristic	Prefers most visible video in element fullscreen.
+_features	3	Optional(false)	PrivateClickMeasurementDebugModeEnabled	Enable Private Click Measurement Debug Mode
+_features	6	Optional(true)	PrivateClickMeasurementFraudPreventionEnabled	Enable Private Click Measurement Fraud Prevention
+_features	0	Optional(true)	PrivateClickMeasurementEnabled	Enable Private Click Measurement for Cross-Site Link Navigations
+_features	6	Optional(true)	PrivateTokenUsageByThirdPartyEnabled	Enable private token usage by third party
+_features	0	Optional(false)	PushAPIEnabled	Enable Push API
+_features	2	Optional(false)	LegacyPluginQuirkForMailSignaturesEnabled	Quirk to get Mail to load signatures correctly with WebKitLegacy
+_features	7	Optional(true)	GoogleAntiFlickerOptimizationQuirkEnabled	Quirk to prevent delayed initial painting on sites using Google's Anti-Flicker optimization
+_features	2	Optional(true)	RTCEncodedStreamsQuirkEnabled	Enable RTC Encoded Streams Quirk
+_features	6	Optional(true)	ReadableByteStreamFetchSourceEnabled	Enable Readable Byte Streams for fetch API
+_features	6	Optional(true)	ReadableByteStreamAPIEnabled	Enable Readable Byte Streams
+_features	6	Optional(true)	ReadableStreamIterableEnabled	Enable ReadableStream async iterable
+_features	6	Optional(true)	ReadableStreamFromEnabled	Enable ReadableStream.from
+_features	6	Optional(true)	ReadableStreamTransferEnabled	Enable ReadableStream/WritableStream/TransformStream transfer
+_features	1	Optional(false)	RemoteMediaSessionManagerEnabled	Enable MediaSessionManager in the UI process
+_features	7	Optional(true)	RemotePlaybackEnabled	Enable Remote Playback API
+_features	4	Optional(false)	RemoteSnapshottingEnabled	
+_features	2	Optional(true)	RemoveBackgroundEnabled	Enable Remove Background
+_features	7	Optional(true)	RequestVideoFrameCallbackEnabled	Enable RequestVideoFrameCallback API
+_features	2	Optional(false)	LoginStatusAPIRequiresWebAuthnEnabled	Require a recent WebAuthn authentication to set login status
+_features	2	Optional(true)	SpeakerSelectionRequiresUserGesture	Require a user gesture for speaker selection
+_features	0	Optional(true)	FullscreenRequirementForScreenOrientationLockingEnabled	Require being in Fullscreen to lock screen orientation
+_features	2	Optional(true)	GetUserMediaRequiresFocus	Require focus to start getUserMedia
+_features	2	Optional(true)	ResourceLoadSchedulingEnabled	Network process side priority and visibility based resource load scheduling
+_features	2	Optional(false)	ResourceUsageOverlayVisible	Make resource usage overlay visible
+_features	2	Optional(false)	RespondToThermalPressureAggressively	Enable responding to thermal pressure aggressively
+_features	0	Optional(true)	SKAttributionEnabled	SKAttribution
+_features	0	Optional(true)	SafeBrowsingEnabled	Enable Safe Browsing
+_features	1	Optional(false)	IsSameSiteStrictEnforcementEnabled	Enable SameSite strict enforcement to mitigate bounce tracking
+_features	6	Optional(true)	ScopedCustomElementRegistryEnabled	Enable scoped custom element registry
+_features	4	Optional(false)	ScreenOrientationLockingAPIEnabled	Enable Screen Orientation API (Locking / Unlocking)
+_features	6	Optional(true)	ScreenOrientationAPIEnabled	Enable Screen Orientation API
+_features	2	Optional(true)	ScreenTimeEnabled	Enable Screen Time
+_features	6	Optional(true)	ScreenWakeLockAPIEnabled	Enable Screen Wake Lock API
+_features	7	Optional(true)	ScreenCaptureEnabled	Enable ScreenCapture
+_features	2	Optional(false)	ScriptTrackingPrivacyLoggingEnabled	Script tracking privacy logging enabled
+_features	2	Optional(true)	ScriptTrackingPrivacyNetworkRequestBlockingEnabled	Block network requests to known tracking domains
+_features	2	Optional(true)	ScriptTrackingPrivacyProtectionsEnabled	Script tracking privacy protections enabled
+_features	2	Optional(false)	ScrollingPerformanceTestingEnabled	Enable behaviors used by scrolling performance tests
+_features	6	Optional(true)	ScrollToTextFragmentFeatureDetectionEnabled	Enable Scroll To Text Fragment Feature Detection
+_features	6	Optional(true)	ScrollToTextFragmentGenerationEnabled	Enable Scroll To Text Fragment Generation Menu
+_features	0	Optional(true)	ScrollToTextFragmentIndicatorEnabled	Enable Scroll To Text Fragment Indicator
+_features	0	Optional(true)	ScrollToTextFragmentMarkingEnabled	Enable Scroll To Text Fragment Marking
+_features	6	Optional(true)	ScrollToTextFragmentEnabled	Enable Scroll To Text Fragment
+_features	0	Optional(true)	ScrollAnimatorEnabled	Enable scroll animator
+_features	2	Optional(true)	SecureContextChecksEnabled	Allow access to HTTPS-only Web APIs over HTTP
+_features	0	Optional(true)	SelectionFlippingEnabled	Enable Selection Flipping
+_features	6	Optional(true)	ServiceWorkerInstallEventEnabled	Enable Service Worker Install Event API
+_features	6	Optional(true)	ServiceWorkerNavigationPreloadEnabled	Enable Service Worker Navigation Preload API
+_features	6	Optional(true)	ServiceWorkersEnabled	Enable Service Workers
+_features	7	Optional(true)	SessionStorageEnabled	Enable Session Storage
+_features	4	Optional(false)	ShapeDetection	Enable the Shape Detection API
+_features	1	Optional(false)	SiteIsolationSharedProcessEnabled	Put cross-site frames in a shared Web process
+_features	6	Optional(true)	SharedWorkerEnabled	Enabled SharedWorker API
+_features	3	Optional(false)	ShowMediaStatsContextMenuItemEnabled	Adds a 'Media Stats' context menu item to <video> when the Develop menu is enabled
+_features	2	Optional(false)	ShowFrameProcessBordersEnabled	
+_features	1	Optional(false)	SiteIsolationEnabled	Put cross-origin iframes in a different process
+_features	2	Optional(false)	SlowFrameIndicatorVisible	Make slow frame indicator visible
+_features	0	Optional(false)	SmartListsAvailable	Allow Smart Lists to be enabled
+_features	5	Optional(false)	SpeculationRulesPrefetchEnabled	SpeculationRules prefetch
+_features	7	Optional(true)	SpeechRecognitionEnabled	Enable SpeechRecognition of WebSpeech API
+_features	0	Optional(true)	SpeechSynthesisAPIEnabled	SpeechSynthesis API
+_features	6	Optional(true)	StorageAPIEstimateEnabled	Enable Storage API Estimate
+_features	6	Optional(true)	StorageAPIEnabled	Enable Storage API
+_features	1	Optional(false)	StorageAccessAPIPerPageScopeEnabled	When enabled, storage access granted to one frame is shared with all same-origin frames on the page
+_features	0	Optional(true)	StorageAccessAPIEnabled	Enable the Storage Access API for cross-site cookie access
+_features	6	Optional(true)	SubpixelInlineLayoutEnabled	Subpixels in line layout (in block direction)
+_features	4	Optional(false)	SupportHDRCompositorTonemappingEnabled	Support HDR tonemapping during compositing
+_features	6	Optional(true)	SupportHDRDisplayEnabled	Support HDR Display
+_features	6	Optional(true)	ProcessSwapOnCrossSiteNavigationEnabled	Swap WebContent Processes on cross-site navigations
+_features	2	Optional(false)	ShouldTakeNearSuspendedAssertions	Take WebKit:NearSuspended assertions on background web content processes
+_features	2	Optional(true)	TextAnimationsEnabled	Text Animations
+_features	2	Optional(true)	TextEffectsEnabled	Text Effects
+_features	2	Optional(false)	TextExtractionDebugUIEnabled	Enable Text Extraction Debug UI
+_features	2	Optional(true)	TextExtractionFilterEnabled	Enable Text Extraction Filter
+_features	2	Optional(true)	TextRecognitionInVideosEnabled	Enable Text Recognition in Videos
+_features	6	Optional(true)	TextShapingAcrossInlineBoxes	Enable Text Shaping Across Inline Boxes
+_features	4	Optional(false)	TextTracksInMSEEnabled	Enable Text Tracks in Media Source Extension
+_features	6	Optional(true)	ThreadedScrollDrivenAnimationsEnabled	Run qualifying scroll-driven animations on a separate thread
+_features	5	Optional(false)	ThreadedTimeBasedAnimationsEnabled	Run qualifying time-based animations on a separate thread
+_features	2	Optional(false)	TiledScrollingIndicatorVisible	Make tiled scrolling indicator visible
+_features	7	Optional(true)	InputTypeTimeEnabled	Enable input elements of type time
+_features	2	Optional(false)	TopContentInsetBackgroundCanChangeAfterScrolling	Top content inset background can change after scrolling
+_features	4	Optional(false)	TrackConfigurationEnabled	Track Configuration API
+_features	6	Optional(false)	TrustedTypesEnabled	Enable Trusted Types
+_features	2	Optional(false)	TwoUpPDFTrailingPageLeftAlignmentEnabled	In two-up PDF display mode, align the trailing odd page to the same column as the first page instead of center
+_features	1	Optional(false)	UndoManagerAPIEnabled	Enable the UndoManager DOM API
+_features	7	Optional(true)	UnifiedPDFEnabled	Enable Unified PDF Viewer
+_features	4	Optional(false)	IPAddressAndLocalhostMixedContentUpgradeTestingEnabled	Enable Upgrading IP addresses and localhost in mixed content
+_features	2	Optional(true)	UpgradeKnownHostsToHTTPSEnabled	Upgrade known hosts to HTTPS
+_features	2	Optional(false)	UseAVCaptureDeviceRotationCoordinatorAPI	Use AVCaptureDeviceRotationCoordinator API
+_features	2	Optional(false)	UseIFCForSVGText	Use IFC for SVG text rendering
+_features	4	Optional(false)	UseMicrophoneMuteStatusAPI	Use Microphone Mute Status API
+_features	1	Optional(false)	UseUIProcessForBackForwardItemLoading	Enable UIProcess-side BackForwardListFrameItem lookup for child frames during Back/Forward navigation
+_features	0	Optional(false)	UseGiantTiles	
+_features	6	Optional(true)	UserActivationAPIEnabled	Enable User Activation API
+_features	2	Optional(true)	UserGesturePromisePropagationEnabled	UserGesture Promise Propagation
+_features	2	Optional(true)	ServiceWorkersUserGestureEnabled	Validate UserGesture requirements in Service Workers
+_features	4	Optional(false)	VerifyWindowOpenUserGestureFromUIProcess	Verifies that the user gesture for window.open came from the UI process
+_features	6	Optional(true)	VerticalFormControlsEnabled	Enable support for form controls in vertical writing mode
+_features	6	Optional(true)	VideoRendererProtectedFallbackDisabled	VideoMediaSampleRenderer fallback to AVSBDL for protected content disabled
+_features	5	Optional(false)	VideoRendererUseDecompressionSessionForProtected	VideoMediaSampleRenderer use DecompressionSession for protected content
+_features	0	Optional(false)	ViewGestureDebuggingEnabled	Enable view gesture debugging
+_features	2	Optional(true)	VisualTranslationEnabled	Enable Visual Translation
+_features	7	Optional(true)	VisualViewportAPIEnabled	Enable Visual Viewport API
+_features	1	Optional(false)	WebAPIStatisticsEnabled	Enable Web API Statistics
+_features	1	Optional(false)	WebAPIsInShadowRealmEnabled	Enable Web APIs to be exposed in ShadowRealm
+_features	4	Optional(false)	WebAnimationsCustomEffectsEnabled	Support for the CustomEffect interface
+_features	4	Optional(false)	WebAnimationsCustomFrameRateEnabled	Support for specifying a custom frame rate for Web Animations
+_features	0	Optional(false)	WebArchiveDebugModeEnabled	Enable web archive debug mode
+_features	2	Optional(false)	WebArchiveTestingModeEnabled	Enable web archive testing mode
+_features	0	Optional(true)	WebAuthenticationASEnabled	Enable Modern Web Authentication support though AuthenticationServices
+_features	0	Optional(true)	WebAuthenticationEnabled	Enable Web Authentication support
+_features	1	Optional(true)	WebContentRestrictionsAskToEnabled	Enable Ask To for WebContentRestrictions
+_features	6	Optional(true)	WebContentRestrictionsTransitiveTrustEnabled	Enable Transitive Trust for WebContentRestrictions
+_features	6	Optional(true)	WebLocksAPIEnabled	Web Locks API
+_features	6	Optional(true)	WebShareFileAPIEnabled	Enable level 2 of Web Share API
+_features	0	Optional(true)	WebShareEnabled	Enable support for share sheet via Web Share API
+_features	4	Optional(false)	WebAssemblyESMIntegrationEnabled	Support for allowing WebAssembly modules to integrate as ES modules
+_features	5	Optional(false)	WebCodecsAV1Enabled	Enable WebCodecs AV1 codec
+_features	6	Optional(true)	WebCodecsAudioEnabled	Enable WebCodecs Audio API
+_features	7	Optional(true)	WebCodecsHEVCEnabled	Enable WebCodecs HEVC codec
+_features	7	Optional(true)	WebCodecsVideoEnabled	Enable WebCodecs Video API
+_features	4	Optional(false)	WebGLDraftExtensionsEnabled	Enable WebGL extensions that are still in draft status
+_features	3	Optional(false)	WebGLTimerQueriesEnabled	Enable WebGL extensions that provide GPU timer queries
+_features	7	Optional(true)	WebGLEnabled	Enable WebGL
+_features	6	Optional(true)	WebGPUHDREnabled	WebGPU High Dynamic Range through canvas configuration tone mapping mode
+_features	1	Optional(false)	WebXRWebGPUBindingsEnabled	Adds WebGPU support for WebXR
+_features	6	Optional(true)	WebGPUEnabled	Enable WebGPU
+_features	2	Optional(false)	WebInspectorEngineeringSettingsAllowed	
+_features	5	Optional(false)	WebRTCAV1CodecEnabled	Enable WebRTC AV1 codec
+_features	2	Optional(true)	WebRTCAudioLatencyAdaptationEnabled	Enable WebRTC Audio Latency Adaptation
+_features	2	Optional(true)	WebRTCDTMFEnabled	Enable WebRTC DTMF
+_features	7	Optional(true)	WebRTCEncodedTransformEnabled	Enable WebRTC Encoded Transform API
+_features	2	Optional(true)	WebRTCH264HardwareEncoderEnabled	Enable H264 Hardware encoder
+_features	7	Optional(true)	WebRTCH265CodecEnabled	Enable WebRTC HEVC codec
+_features	4	Optional(false)	WebRTCL4SEnabled	Enable WebRTC L4S support
+_features	2	Optional(false)	WebRTCMediaPipelineAdditionalLoggingEnabled	Enable WebRTC Media Pipeline Additional Logging
+_features	0	Optional(false)	LegacyWebRTCOfferOptionsEnabled	Enable RTCPeerConnection Legacy offer options (offerToReceiveAudio, offerToReceiveVideo)
+_features	0	Optional(false)	PeerConnectionVideoScalingAdaptationDisabled	Disable RTCPeerConnection Video Scaling Adaptation
+_features	0	Optional(true)	PeerConnectionEnabled	Enable RTCPeerConnection
+_features	2	Optional(true)	WebRTCRemoteVideoFrameEnabled	Enable WebRTC Remote Video Frame
+_features	4	Optional(false)	WebRTCSFrameTransformEnabled	Enable WebRTC SFrame Transform API
+_features	2	Optional(true)	WebRTCSocketsProxyingEnabled	Enable WebRTC Sockets Proxying
+_features	2	Optional(false)	WebRTCSocketsServiceClassEnabled	Enable setting WebRTC Sockets Service Class
+_features	2	Optional(true)	WebRTCVP9Profile0CodecEnabled	Enable WebRTC VP9 profile 0 codec
+_features	7	Optional(true)	WebRTCVP9Profile2CodecEnabled	Enable WebRTC VP9 profile 2 codec
+_features	2	Optional(false)	WebRTCInterfaceMonitoringViaNWEnabled	Enable WebRTC interface monitoring via NW
+_features	6	Optional(true)	WebTransportEnabled	Enable WebTransport
+_features	0	Optional(false)	InputTypeWeekEnabled	Enable input elements of type week
+_features	7	Optional(true)	WheelEventGesturesBecomeNonBlocking	preventDefault() is only allowed on the first wheel event in a gesture
+_features	0	Optional(true)	PassiveWheelListenersAsDefaultOnDocument	Force wheel event listeners registered on the window, document or body to be passive
+_features	5	Optional(false)	WorkerInSharedWorkerEnabled	Allow creating dedicated workers from shared workers
+_features	5	Optional(false)	WorkerParseErrorReportingEnabled	Report worker script parse errors on the Worker object
+_features	2	Optional(true)	WriteRichTextDataWhenCopyingOrDragging	Write RTF, RTFD and attributed strings to the pasteboard when copying or dragging
+_features	2	Optional(true)	XSLTEnabled	Enables support for XSLT
+_features	3	Optional(false)	IsFirstPartyWebsiteDataRemovalLiveOnTestingEnabled	Remove all non-cookie website data after just one hour of no user interaction when Intelligent Tracking Preven
+_features	3	Optional(false)	IsFirstPartyWebsiteDataRemovalReproTestingEnabled	Remove all non-cookie website data after just 30 seconds of no user interaction when Intelligent Tracking Prev
+_features	6	Optional(true)	AltitudeAngleEnabled	Enable the `altitudeAngle` property of the PointerEvents API
+_features	4	Optional(false)	ARIAActionsSupportEnabled	Enable support for aria-actions
+_features	2	Optional(true)	IsARIANotifyEnabled	Enable ariaNotify support
+_features	6	Optional(true)	AzimuthAngleEnabled	Enable the `azimuthAngle` property of the PointerEvents API
+_features	7	Optional(true)	InputTypeDateTimeLocalEnabled	Enable input elements of type datetime-local
+_features	6	Optional(true)	CaretPositionFromPointEnabled	Enable document.caretPositionFromPoint() API
+_features	6	Optional(true)	HiddenUntilFoundEnabled	Enable support for hidden=until-found
+_features	7	Optional(true)	HTTPEquivEnabled	Enable http-equiv attribute
+_features	4	Optional(false)	ShadowRootReferenceTargetEnabledForAriaOwns	Enable referenceTarget support for aria-owns and ariaOwnsElements
+_features	4	Optional(false)	ShadowRootReferenceTargetEnabled	Enable setting a referenceTarget on shadow roots
+_features	4	Optional(false)	RequestIdleCallbackEnabled	Enable requestIdleCallback support
+_features	1	Optional(false)	RequestStorageAccessThrowsExceptionUntilReload	requestStorageAccess throws execption until reload
+_features	6	Optional(true)	ScrollendEventEnabled	Enable scrollend event
+_features	5	Optional(false)	CSSWordBreakAutoPhraseEnabled	Enables the auto-phrase value of the word-break CSS property
+_experimentalFeatures	6	Optional(true)	TargetTextPseudoElementEnabled	Enable the ::target-text CSS pseudo-element
+_experimentalFeatures	6	Optional(true)	OpenPseudoClassEnabled	Enable the :open CSS pseudo-class
+_experimentalFeatures	4	Optional(false)	SelectShowPickerEnabled	Enable showPicker() method on <select>
+_experimentalFeatures	6	Optional(true)	AllowWebGLInWorkers	
+_experimentalFeatures	3	Optional(false)	AllowUniversalAccessFromFileURLs	
+_experimentalFeatures	6	Optional(true)	ExtendedAudioDescriptionsEnabled	Enable extended audio descriptions for video
+_experimentalFeatures	6	Optional(true)	AudioDescriptionsEnabled	Enable standard audio descriptions for video
+_experimentalFeatures	4	Optional(false)	DOMAudioSessionFullEnabled	Enable AudioSession full API
+_experimentalFeatures	6	Optional(true)	BroadcastChannelEnabled	BroadcastChannel API
+_experimentalFeatures	5	Optional(false)	CSS3DTransformBackfaceVisibilityInteroperabilityEnabled	Enable 3D transform behavior for backface-visibility that is specification-compliant but backwards incompatibl
+_experimentalFeatures	4	Optional(false)	CSSCounterStyleAtRuleImageSymbolsEnabled	Enable support for <image> symbols in CSS @counter-style rules
+_experimentalFeatures	4	Optional(false)	CSSFunctionAtRuleEnabled	Enable CSS @function rule
+_experimentalFeatures	6	Optional(true)	AccentColorEnabled	Enable accent-color CSS property
+_experimentalFeatures	6	Optional(true)	CSSAnchorPositioningEnabled	Enable CSS Anchor Positioning
+_experimentalFeatures	6	Optional(true)	DevolvableWidgetsEnabled	Enable support for devolvable widgets
+_experimentalFeatures	4	Optional(false)	CSSInputSecurityEnabled	Enable input-security CSS property
+_experimentalFeatures	6	Optional(true)	OverscrollBehaviorEnabled	Enable CSS overscroll-behavior
+_experimentalFeatures	4	Optional(false)	CSSPaintingAPIEnabled	Enable the CSS Painting API
+_experimentalFeatures	4	Optional(false)	CSSRhythmicSizingEnabled	Enable CSS Rhythmic Sizing properties
+_experimentalFeatures	6	Optional(true)	CSSScrollAnchoringEnabled	Enable CSS Scroll Anchoring
+_experimentalFeatures	4	Optional(false)	CSSScrollStateContainerQueriesEnabled	Enable scroll-state value for container-type CSS property
+_experimentalFeatures	6	Optional(true)	CSSTreeCountingFunctionsEnabled	Enable support for CSS Values and Units Module Level 5 tree counting functions sibling-count() and sibling-ind
+_experimentalFeatures	4	Optional(false)	CSSTypedOMColorEnabled	Enable the CSS Typed OM Color support
+_experimentalFeatures	6	Optional(true)	CSSURLModifiersEnabled	Enable support for CSS Values and Units Module Level 5 URL modifiers
+_experimentalFeatures	4	Optional(false)	CSSURLIntegrityModifierEnabled	Enable support for CSS Values and Units Module Level 5 URL integrity() modifier
+_experimentalFeatures	6	Optional(true)	CSSUnprefixedBackdropFilterEnabled	Enable unprefixed backdrop-filter CSS property
+_experimentalFeatures	4	Optional(false)	CSSAppearanceBaseEnabled	Enable base value for CSS appearance
+_experimentalFeatures	5	Optional(false)	CSSAttrSubstitutionFunctionEnabled	Enable CSS Values 5 attr() arbitrary substitution function
+_experimentalFeatures	6	Optional(true)	CSSAxisRelativePositionKeywordsEnabled	Enable support for CSS Values and Units Module Level 5 axis relative keywords in <position>
+_experimentalFeatures	5	Optional(false)	CSSCalcMixEnabled	Enable support for CSS calc-mix()
+_experimentalFeatures	5	Optional(false)	CSSColorLayersEnabled	Enable support for CSS color-layers()
+_experimentalFeatures	4	Optional(false)	CSSCornerShapeEnabled	Enable support for CSS corner-shape property
+_experimentalFeatures	5	Optional(false)	CSSDPropertyEnabled	Enable support for the CSS d property and SVG d presentation attribute
+_experimentalFeatures	6	Optional(true)	GridLanesEnabled	Enable CSS display: grid-lanes
+_experimentalFeatures	4	Optional(false)	CSSDynamicRangeLimitMixEnabled	Enable support for CSS dynamic-range-limit-mix(), but animation stays unsupported
+_experimentalFeatures	4	Optional(false)	CSSConstrainedDynamicRangeLimitEnabled	Enable support for CSS dynamic-range-limit value constrained
+_experimentalFeatures	6	Optional(true)	CSSFieldSizingEnabled	Enable field-sizing CSS property
+_experimentalFeatures	5	Optional(false)	CSSFontSynthesisStyleObliqueOnlyEnabled	Enable the oblique-only value for the font-synthesis-style CSS property
+_experimentalFeatures	5	Optional(false)	CSSFontVariantEmojiEnabled	Enable the font-variant-emoji CSS property
+_experimentalFeatures	4	Optional(false)	CSSIdentFunctionEnabled	Enable the CSS Values 5 ident() function
+_experimentalFeatures	5	Optional(false)	CSSLineClampEnabled	Enable CSS line-clamp
+_experimentalFeatures	6	Optional(true)	CSSMathDepthEnabled	Enable support for math-depth from MathML Core.
+_experimentalFeatures	4	Optional(false)	CSSObjectViewBoxEnabled	Enable support for CSS object-view-box property
+_experimentalFeatures	4	Optional(false)	CSSOverflowClipMarginEnabled	Enable CSS overflow-clip-margin
+_experimentalFeatures	6	Optional(true)	CSSRandomFunctionEnabled	Enable support for CSS Values and Units Module Level 5 random()
+_experimentalFeatures	4	Optional(false)	CSSRandomItemFunctionEnabled	Enable support for CSS Values and Units Module Level 5 random-item()
+_experimentalFeatures	6	Optional(true)	CSSScrollbarColorEnabled	Enable scrollbar-color CSS property
+_experimentalFeatures	6	Optional(true)	CSSScrollbarGutterEnabled	Enable scrollbar-gutter CSS property
+_experimentalFeatures	6	Optional(true)	CSSScrollbarWidthEnabled	Enable scrollbar-width CSS property
+_experimentalFeatures	6	Optional(true)	CSSTextDecorationLineErrorValues	Enable support for spelling-error and grammar-error values on text-decoration-line
+_experimentalFeatures	4	Optional(false)	CSSTextGroupAlignEnabled	Enable text-group-align CSS property
+_experimentalFeatures	4	Optional(false)	CSSTextJustifyEnabled	Enable the property text-justify, defined in CSS Text 3
+_experimentalFeatures	4	Optional(false)	CSSTextSpacingTrimEnabled	Enable the property text-spacing-trim, defined in CSS Text 4
+_experimentalFeatures	4	Optional(false)	CSSTextTransformMathAutoEnabled	Enable the math-auto text transform.
+_experimentalFeatures	6	Optional(true)	CSSTextWrapPrettyEnabled	Enable the pretty value for text-wrap-style
+_experimentalFeatures	6	Optional(true)	CanvasColorSpaceEnabled	Enable use of predefined canvas color spaces
+_experimentalFeatures	4	Optional(false)	CanvasColorTypeEnabled	Allow different color types and pixel formats in 2D canvas
+_experimentalFeatures	4	Optional(false)	CanvasFiltersEnabled	Canvas Filters
+_experimentalFeatures	4	Optional(false)	CanvasLayersEnabled	Enable Canvas Layers
+_experimentalFeatures	6	Optional(true)	ClearSiteDataHTTPHeaderEnabled	Enable Clear-Site-Data HTTP Header support
+_experimentalFeatures	4	Optional(false)	ClearSiteDataExecutionContextsSupportEnabled	Enable Clear-Site-Data: 'executionContexts' support
+_experimentalFeatures	5	Optional(false)	CloseWatcherEnabled	Enable Close Watcher API including dialog closedby attribute
+_experimentalFeatures	6	Optional(true)	CompressionStreamEnabled	Enable Compression Stream API
+_experimentalFeatures	6	Optional(true)	ConsistentQueryParameterFilteringQuirkEnabled	Enable consistent query parameter filtering
+_experimentalFeatures	4	Optional(false)	ContactPickerAPIEnabled	Enable the Contact Picker API
+_experimentalFeatures	4	Optional(false)	CookieStoreManagerEnabled	Enable Cookie Store API CookieStoreManager which controls cookie change subscriptions for Service Workers
+_experimentalFeatures	6	Optional(true)	CookieStoreAPIEnabled	Enable Cookie Store API
+_experimentalFeatures	6	Optional(true)	CrossOriginEmbedderPolicyEnabled	Support for Cross-Origin-Embedder-Policy (COEP) header
+_experimentalFeatures	6	Optional(true)	CrossOriginOpenerPolicyEnabled	Support for Cross-Origin-Opener-Policy (COOP) header
+_experimentalFeatures	4	Optional(true)	MutationEventsEnabled	
+_experimentalFeatures	6	Optional(true)	DeclarativeWebPush	Enable Declarative Web Push
+_experimentalFeatures	6	Optional(true)	ShouldDeferAsynchronousScriptsUntilAfterDocumentLoadOrFirstPaint	Defer async scripts until DOMContentLoaded or first-paint
+_experimentalFeatures	4	Optional(false)	CoreMathMLDeprecateLegacyMathvariant	Align the mathvariant attribute with MathML Core, disabling all variants except italic.
+_experimentalFeatures	4	Optional(false)	DeprecationReportingEnabled	Enable Deprecation Reporting
+_experimentalFeatures	3	Optional(false)	DetachableMediaSourceEnabled	Detachable Media Source API
+_experimentalFeatures	6	Optional(false)	DigitalCredentialsEnabled	Enable the Digital Credentials API
+_experimentalFeatures	3	Optional(false)	IsThirdPartyCookieBlockingDisabled	Disable full third-party cookie blocking when Intelligent Tracking Prevention is enabled
+_experimentalFeatures	3	Optional(false)	IsFirstPartyWebsiteDataRemovalDisabled	Disable removal of all non-cookie website data after seven days of no user interaction when Intelligent Tracki
+_experimentalFeatures	4	Optional(false)	MathMLDisableHrefOnNonAnchorElement	The only MathML element on which href is allowed is <a>.
+_experimentalFeatures	6	Optional(true)	CanvasFingerprintingQuirkEnabled	
+_experimentalFeatures	6	Optional(true)	EnableElementCurrentCSSZoom	Enable Element.currentCSSZoom
+_experimentalFeatures	6	Optional(true)	EnhancedSecurityHeuristicsEnabled	Triggers EnhancedSecurity when insecure HTTP loads occur
+_experimentalFeatures	4	Optional(false)	BackgroundFetchAPIEnabled	Enable background-fetch API
+_experimentalFeatures	4	Optional(false)	CFNetworkNetworkLoaderEnabled	Enable experimental network loader
+_experimentalFeatures	6	Optional(true)	HTMLEnhancedSelectParsingEnabled	Enable enhanced HTML select element parsing
+_experimentalFeatures	6	Optional(true)	HTMLEnhancedSelectEnabled	Enable enhanced HTML select element
+_experimentalFeatures	6	Optional(true)	EnhancedSecurityLinksEnabled	Enables additional Enhanced Security support for certain links
+_experimentalFeatures	3	Optional(false)	EnumeratedARIAAttributeReflectionEnabled	Enable enumerated ARIA attributes
+_experimentalFeatures	6	Optional(true)	EvaluationTimeZoomEnabled	Enables used zoom value to be applied during layout and avoid applying at style-build time
+_experimentalFeatures	6	Optional(true)	EventTimingEnabled	Enable the Event Timing API and supporting instrumentation
+_experimentalFeatures	3	Optional(false)	WebAssemblyDebuggerEnabled	Enable LLDB debugging support for WebAssembly (requires new tab)
+_experimentalFeatures	3	Optional(false)	FTPEnabled	FTP support enabled
+_experimentalFeatures	5	Optional(false)	FileSystemHandleSerializationEnabled	Enable FileSystemHandle for postMessage() and structuredClone()
+_experimentalFeatures	6	Optional(true)	FileSystemWritableStreamEnabled	Enable File System WritableStream API
+_experimentalFeatures	5	Optional(false)	FilterLinkDecorationByDefaultEnabled	Enable Filtering Link Decoration
+_experimentalFeatures	4	Optional(false)	FindInVideoEnabled	Include video subtitle/caption cues in Find-in-Page results
+_experimentalFeatures	6	Optional(true)	UseGPUProcessForCanvasRenderingEnabled	Enable canvas rendering in GPU Process
+_experimentalFeatures	6	Optional(true)	UseGPUProcessForDOMRenderingEnabled	Enable DOM rendering in GPU Process
+_experimentalFeatures	4	Optional(false)	GamepadTriggerRumbleEnabled	Support for Gamepad trigger vibration
+_experimentalFeatures	6	Optional(true)	GamepadVibrationActuatorEnabled	Support for Gamepad.vibrationActuator
+_experimentalFeatures	6	Optional(true)	GetBoundingClientRectZoomedEnabled	Get(Bounding)ClientRect API return a zoomed rect
+_experimentalFeatures	6	Optional(true)	GraphicsContextFiltersEnabled	GraphicsContext Filter Rendering
+_experimentalFeatures	6	Optional(true)	HDRAcceleratedApplyGainMapEnabled	Enable HDR Accelerated Apply GainMap
+_experimentalFeatures	6	Optional(true)	ModelElementEnabled	Enable HTML <model> element
+_experimentalFeatures	4	Optional(false)	ModelDocumentEnabled	Enable HTML <model> element for model documents
+_experimentalFeatures	6	Optional(true)	InputTypeColorEnhancementsEnabled	Enable HTML alpha and colorspace attribute support for input elements of type color
+_experimentalFeatures	6	Optional(true)	DetailsAutoExpandEnabled	Enable HTML auto-expanding <details>
+_experimentalFeatures	6	Optional(true)	CommandAttributesEnabled	Enable HTML command & commandfor attribute support
+_experimentalFeatures	6	Optional(true)	PopoverAttributeEnabled	Enable HTML popover attribute support
+_experimentalFeatures	6	Optional(true)	SwitchControlEnabled	Enable HTML switch control
+_experimentalFeatures	4	Optional(false)	HTTPSByDefaultEnabled	Enable HTTPS-by-default (HTTPS-First)
+_experimentalFeatures	3	Optional(false)	ItpDebugModeEnabled	Intelligent Tracking Prevention Debug Mode
+_experimentalFeatures	6	Optional(true)	ImageCaptureEnabled	Enable Image Capture API
+_experimentalFeatures	6	Optional(true)	IndexedDBSQLiteMemoryBackingStoreEnabled	Use SQLite in-memory database for ephemeral IndexedDB instead of MemoryIDBBackingStore
+_experimentalFeatures	5	Optional(false)	IndexedDBGetAllRecordsAndGetAllOptionsEnabled	Enable the getAllRecords() API on IDBObjectStore/IDBIndex and enable getAll()/getAllKeys() to accept IDBGetAll
+_experimentalFeatures	6	Optional(true)	LargestContentfulPaintEnabled	Enable Largest Contentful Paint performance entries
+_experimentalFeatures	6	Optional(true)	LazyImageLoadingEnabled	Enable lazy image loading support
+_experimentalFeatures	3	Optional(true)	FontFaceSetConstructorEnabled	Legacy FontFaceSet Constructor API
+_experimentalFeatures	3	Optional(false)	ShowModalDialogEnabled	Legacy showModalDialog() API
+_experimentalFeatures	3	Optional(false)	LimitedMatroskaSupportEnabled	Enable H264 and PCM with WebM Player and MediaRecorder
+_experimentalFeatures	6	Optional(true)	LinkPreconnectEarlyHintsEnabled	Enable link rel=preconnect via early hints
+_experimentalFeatures	4	Optional(false)	LinkPrefetchEnabled	Enable LinkedPrefetch
+_experimentalFeatures	6	Optional(true)	LoadWebArchiveWithEphemeralStorageEnabled	Enable loading web archive with ephemeral storage
+_experimentalFeatures	6	Optional(true)	LockdownFontParserEnabled	Try parsing Web fonts with safe font parser in Lockdown Mode
+_experimentalFeatures	4	Optional(false)	LoginStatusAPIEnabled	Enable the proposed Login Status API
+_experimentalFeatures	5	Optional(false)	MediaControlsMacInlineSizeSpecsEnabled	Adopt new size specs for media controls
+_experimentalFeatures	6	Optional(true)	MediaRecorderEnabledWebM	Enable WebM support with MediaRecorder
+_experimentalFeatures	6	Optional(true)	MediaSessionCaptureToggleAPIEnabled	Enable MediaSession capture related API
+_experimentalFeatures	4	Optional(false)	MediaSessionExtendedActionsEnabled	Enable MediaSession hangup, previousslide, nextslide, and enterpictureinpicture actions
+_experimentalFeatures	6	Optional(true)	MediaSourceInWorkerEnabled	MediaSource in a Worker
+_experimentalFeatures	6	Optional(true)	MediaSourcePrefersDecompressionSession	MediaSource prefers DecompressionSession
+_experimentalFeatures	5	Optional(false)	MediaStreamTrackHandleEnabled	Enable MediaStreamTrackHandle
+_experimentalFeatures	4	Optional(false)	MetaViewportInteractiveWidgetEnabled	Enable the interactive-widget attribute on the viewport meta element
+_experimentalFeatures	4	Optional(false)	MultiProcessBackForwardCacheEnabled	Enable back/forward cache when site isolation is active
+_experimentalFeatures	6	Optional(true)	NavigationAPIEnabled	Enable Navigation API
+_experimentalFeatures	6	Optional(true)	FlexFormattingContextIntegrationEnabled	Enable next-generation flex layout integration (FFC)
+_experimentalFeatures	6	Optional(true)	GridFormattingContextIntegrationEnabled	Enable next-generation grid layout integration (GFC)
+_experimentalFeatures	6	Optional(true)	NotificationsEnabled	Enable the Notifications API
+_experimentalFeatures	4	Optional(false)	ObservableEnabled	Support for the Observable API
+_experimentalFeatures	6	Optional(true)	OffscreenCanvasInWorkersEnabled	Support for the OffscreenCanvas APIs in Workers
+_experimentalFeatures	6	Optional(true)	OffscreenCanvasEnabled	Support for the OffscreenCanvas APIs
+_experimentalFeatures	6	Optional(true)	OptInPartitionedCookiesEnabled	Enable opt-in partitioned cookies
+_experimentalFeatures	6	Optional(true)	OriginAPIEnabled	Enable the Origin API
+_experimentalFeatures	5	Optional(false)	OriginAgentClusterEnabled	Support for the Origin-Agent-Cluster HTTP response header and window.originAgentCluster getter
+_experimentalFeatures	6	Optional(true)	PermissionsAPIEnabled	Enable Permissions API
+_experimentalFeatures	6	Optional(true)	PreferPageRenderingUpdatesNear60FPSEnabled	Prefer page rendering updates near 60 frames per second rather than using the display's refresh rate
+_experimentalFeatures	6	Optional(true)	VideoFullsceenPrefersMostVisibleHeuristic	Prefers most visible video in element fullscreen.
+_experimentalFeatures	3	Optional(false)	PrivateClickMeasurementDebugModeEnabled	Enable Private Click Measurement Debug Mode
+_experimentalFeatures	6	Optional(true)	PrivateClickMeasurementFraudPreventionEnabled	Enable Private Click Measurement Fraud Prevention
+_experimentalFeatures	6	Optional(true)	PrivateTokenUsageByThirdPartyEnabled	Enable private token usage by third party
+_experimentalFeatures	6	Optional(true)	ReadableByteStreamFetchSourceEnabled	Enable Readable Byte Streams for fetch API
+_experimentalFeatures	6	Optional(true)	ReadableByteStreamAPIEnabled	Enable Readable Byte Streams
+_experimentalFeatures	6	Optional(true)	ReadableStreamIterableEnabled	Enable ReadableStream async iterable
+_experimentalFeatures	6	Optional(true)	ReadableStreamFromEnabled	Enable ReadableStream.from
+_experimentalFeatures	6	Optional(true)	ReadableStreamTransferEnabled	Enable ReadableStream/WritableStream/TransformStream transfer
+_experimentalFeatures	4	Optional(false)	RemoteSnapshottingEnabled	
+_experimentalFeatures	6	Optional(true)	ScopedCustomElementRegistryEnabled	Enable scoped custom element registry
+_experimentalFeatures	4	Optional(false)	ScreenOrientationLockingAPIEnabled	Enable Screen Orientation API (Locking / Unlocking)
+_experimentalFeatures	6	Optional(true)	ScreenOrientationAPIEnabled	Enable Screen Orientation API
+_experimentalFeatures	6	Optional(true)	ScreenWakeLockAPIEnabled	Enable Screen Wake Lock API
+_experimentalFeatures	6	Optional(true)	ScrollToTextFragmentFeatureDetectionEnabled	Enable Scroll To Text Fragment Feature Detection
+_experimentalFeatures	6	Optional(true)	ScrollToTextFragmentGenerationEnabled	Enable Scroll To Text Fragment Generation Menu
+_experimentalFeatures	6	Optional(true)	ScrollToTextFragmentEnabled	Enable Scroll To Text Fragment
+_experimentalFeatures	6	Optional(true)	ServiceWorkerInstallEventEnabled	Enable Service Worker Install Event API
+_experimentalFeatures	6	Optional(true)	ServiceWorkerNavigationPreloadEnabled	Enable Service Worker Navigation Preload API
+_experimentalFeatures	6	Optional(true)	ServiceWorkersEnabled	Enable Service Workers
+_experimentalFeatures	4	Optional(false)	ShapeDetection	Enable the Shape Detection API
+_experimentalFeatures	6	Optional(true)	SharedWorkerEnabled	Enabled SharedWorker API
+_experimentalFeatures	3	Optional(false)	ShowMediaStatsContextMenuItemEnabled	Adds a 'Media Stats' context menu item to <video> when the Develop menu is enabled
+_experimentalFeatures	5	Optional(false)	SpeculationRulesPrefetchEnabled	SpeculationRules prefetch
+_experimentalFeatures	6	Optional(true)	StorageAPIEstimateEnabled	Enable Storage API Estimate
+_experimentalFeatures	6	Optional(true)	StorageAPIEnabled	Enable Storage API
+_experimentalFeatures	6	Optional(true)	SubpixelInlineLayoutEnabled	Subpixels in line layout (in block direction)
+_experimentalFeatures	4	Optional(false)	SupportHDRCompositorTonemappingEnabled	Support HDR tonemapping during compositing
+_experimentalFeatures	6	Optional(true)	SupportHDRDisplayEnabled	Support HDR Display
+_experimentalFeatures	6	Optional(true)	ProcessSwapOnCrossSiteNavigationEnabled	Swap WebContent Processes on cross-site navigations
+_experimentalFeatures	6	Optional(true)	TextShapingAcrossInlineBoxes	Enable Text Shaping Across Inline Boxes
+_experimentalFeatures	4	Optional(false)	TextTracksInMSEEnabled	Enable Text Tracks in Media Source Extension
+_experimentalFeatures	6	Optional(true)	ThreadedScrollDrivenAnimationsEnabled	Run qualifying scroll-driven animations on a separate thread
+_experimentalFeatures	5	Optional(false)	ThreadedTimeBasedAnimationsEnabled	Run qualifying time-based animations on a separate thread
+_experimentalFeatures	4	Optional(false)	TrackConfigurationEnabled	Track Configuration API
+_experimentalFeatures	6	Optional(false)	TrustedTypesEnabled	Enable Trusted Types
+_experimentalFeatures	4	Optional(false)	IPAddressAndLocalhostMixedContentUpgradeTestingEnabled	Enable Upgrading IP addresses and localhost in mixed content
+_experimentalFeatures	4	Optional(false)	UseMicrophoneMuteStatusAPI	Use Microphone Mute Status API
+_experimentalFeatures	6	Optional(true)	UserActivationAPIEnabled	Enable User Activation API
+_experimentalFeatures	4	Optional(false)	VerifyWindowOpenUserGestureFromUIProcess	Verifies that the user gesture for window.open came from the UI process
+_experimentalFeatures	6	Optional(true)	VerticalFormControlsEnabled	Enable support for form controls in vertical writing mode
+_experimentalFeatures	6	Optional(true)	VideoRendererProtectedFallbackDisabled	VideoMediaSampleRenderer fallback to AVSBDL for protected content disabled
+_experimentalFeatures	5	Optional(false)	VideoRendererUseDecompressionSessionForProtected	VideoMediaSampleRenderer use DecompressionSession for protected content
+_experimentalFeatures	4	Optional(false)	WebAnimationsCustomEffectsEnabled	Support for the CustomEffect interface
+_experimentalFeatures	4	Optional(false)	WebAnimationsCustomFrameRateEnabled	Support for specifying a custom frame rate for Web Animations
+_experimentalFeatures	6	Optional(true)	WebContentRestrictionsTransitiveTrustEnabled	Enable Transitive Trust for WebContentRestrictions
+_experimentalFeatures	6	Optional(true)	WebLocksAPIEnabled	Web Locks API
+_experimentalFeatures	6	Optional(true)	WebShareFileAPIEnabled	Enable level 2 of Web Share API
+_experimentalFeatures	4	Optional(false)	WebAssemblyESMIntegrationEnabled	Support for allowing WebAssembly modules to integrate as ES modules
+_experimentalFeatures	5	Optional(false)	WebCodecsAV1Enabled	Enable WebCodecs AV1 codec
+_experimentalFeatures	6	Optional(true)	WebCodecsAudioEnabled	Enable WebCodecs Audio API
+_experimentalFeatures	4	Optional(false)	WebGLDraftExtensionsEnabled	Enable WebGL extensions that are still in draft status
+_experimentalFeatures	3	Optional(false)	WebGLTimerQueriesEnabled	Enable WebGL extensions that provide GPU timer queries
+_experimentalFeatures	6	Optional(true)	WebGPUHDREnabled	WebGPU High Dynamic Range through canvas configuration tone mapping mode
+_experimentalFeatures	6	Optional(true)	WebGPUEnabled	Enable WebGPU
+_experimentalFeatures	5	Optional(false)	WebRTCAV1CodecEnabled	Enable WebRTC AV1 codec
+_experimentalFeatures	4	Optional(false)	WebRTCL4SEnabled	Enable WebRTC L4S support
+_experimentalFeatures	4	Optional(false)	WebRTCSFrameTransformEnabled	Enable WebRTC SFrame Transform API
+_experimentalFeatures	6	Optional(true)	WebTransportEnabled	Enable WebTransport
+_experimentalFeatures	5	Optional(false)	WorkerInSharedWorkerEnabled	Allow creating dedicated workers from shared workers
+_experimentalFeatures	5	Optional(false)	WorkerParseErrorReportingEnabled	Report worker script parse errors on the Worker object
+_experimentalFeatures	3	Optional(false)	IsFirstPartyWebsiteDataRemovalLiveOnTestingEnabled	Remove all non-cookie website data after just one hour of no user interaction when Intelligent Tracking Preven
+_experimentalFeatures	3	Optional(false)	IsFirstPartyWebsiteDataRemovalReproTestingEnabled	Remove all non-cookie website data after just 30 seconds of no user interaction when Intelligent Tracking Prev
+_experimentalFeatures	6	Optional(true)	AltitudeAngleEnabled	Enable the `altitudeAngle` property of the PointerEvents API
+_experimentalFeatures	4	Optional(false)	ARIAActionsSupportEnabled	Enable support for aria-actions
+_experimentalFeatures	6	Optional(true)	AzimuthAngleEnabled	Enable the `azimuthAngle` property of the PointerEvents API
+_experimentalFeatures	6	Optional(true)	CaretPositionFromPointEnabled	Enable document.caretPositionFromPoint() API
+_experimentalFeatures	6	Optional(true)	HiddenUntilFoundEnabled	Enable support for hidden=until-found
+_experimentalFeatures	4	Optional(false)	ShadowRootReferenceTargetEnabledForAriaOwns	Enable referenceTarget support for aria-owns and ariaOwnsElements
+_experimentalFeatures	4	Optional(false)	ShadowRootReferenceTargetEnabled	Enable setting a referenceTarget on shadow roots
+_experimentalFeatures	4	Optional(false)	RequestIdleCallbackEnabled	Enable requestIdleCallback support
+_experimentalFeatures	6	Optional(true)	ScrollendEventEnabled	Enable scrollend event
+_experimentalFeatures	5	Optional(false)	CSSWordBreakAutoPhraseEnabled	Enables the auto-phrase value of the word-break CSS property
+_internalDebugFeatures	2	Optional(true)	IsAriaLiveRegionManagementEnabled	Turn on ARIA live-region management within WebKit
+_internalDebugFeatures	1	Optional(false)	AcceleratedFiltersEnabled	Accelerated CSS and SVG filter rendering
+_internalDebugFeatures	2	Optional(false)	DOMTestingAPIsEnabled	Enable additional testing APIs for DOM objects
+_internalDebugFeatures	2	Optional(true)	PerElementSpeakerSelectionEnabled	Allow per media element speaker device selection
+_internalDebugFeatures	2	Optional(true)	AllowMultipleCommitLayerTreePending	Allow requesting CommitLayerTree before the previous has completed
+_internalDebugFeatures	2	Optional(true)	ExposeSpeakersWithoutMicrophoneEnabled	Allow selection of speaker device without related microphone
+_internalDebugFeatures	2	Optional(true)	ExposeSpeakersEnabled	Allow speaker device selection
+_internalDebugFeatures	2	Optional(false)	AlwaysAllowLocalWebarchive	Enable always allowing loading local Web Archive
+_internalDebugFeatures	2	Optional(false)	SWVPDecodersAlwaysEnabled	Always enable VPx software decoders
+_internalDebugFeatures	1	Optional(false)	AppBadgeEnabled	Enable App Badge
+_internalDebugFeatures	1	Optional(false)	AppHighlightsEnabled	Enable App Highlights
+_internalDebugFeatures	2	Optional(true)	UseAppKitGestures	Use AppKit Gestures
+_internalDebugFeatures	2	Optional(true)	AsyncFrameScrollingEnabled	Perform frame scrolling off the main thread
+_internalDebugFeatures	2	Optional(true)	AsyncOverflowScrollingEnabled	Perform overflow scrolling off the main thread
+_internalDebugFeatures	2	Optional(false)	AutomaticallyAdjustsViewScaleUsingMinimumEffectiveDeviceWidth	Automatically Adjust View Scale to Fit Min. Effective Device Width
+_internalDebugFeatures	2	Optional(false)	BidiContentAwarePasteEnabled	Bidi content aware paste
+_internalDebugFeatures	1	Optional(false)	BuiltInNotificationsEnabled	Enable built-in WebKit managed notifications
+_internalDebugFeatures	2	Optional(false)	CSSInternalAutoBaseParsingEnabled	Enable parsing -internal-auto-base() in author sheet
+_internalDebugFeatures	2	Optional(true)	CSSPickerPseudoElementEnabled	Enable the CSS ::picker() pseudo-element
+_internalDebugFeatures	1	Optional(false)	CSSRubyDisplayTypesInAuthorStylesEnabled	Enable CSS Ruby Display types in author styles
+_internalDebugFeatures	2	Optional(true)	CSSSelectorJITCompilerEnabled	Enable the JIT compiler for CSS selectors
+_internalDebugFeatures	1	Optional(false)	SpringTimingFunctionEnabled	CSS Spring Animation prototype
+_internalDebugFeatures	1	Optional(false)	CSSLineFitEdgeEnabled	Enable CSS line-fit-edge
+_internalDebugFeatures	2	Optional(true)	CaptionDisplaySettingsEnabled	Enable Caption Display Settings API
+_internalDebugFeatures	2	Optional(false)	ChildProcessDebuggabilityEnabled	Enable stopping child processes with a debugger
+_internalDebugFeatures	2	Optional(false)	CompositingBordersVisible	
+_internalDebugFeatures	2	Optional(false)	CompositingRepaintCountersVisible	
+_internalDebugFeatures	2	Optional(false)	ConsistentQueryParameterFilteringInternalQuirkEnabled	Enable internal consistent query parameter filtering
+_internalDebugFeatures	2	Optional(false)	ContentInsetBackgroundFillEnabled	Fill content insets with background colors
+_internalDebugFeatures	1	Optional(false)	InputMethodUsesCorrectKeyEventOrder	
+_internalDebugFeatures	2	Optional(true)	DOMPasteAccessRequestsEnabled	Enable DOM Paste Access Requests
+_internalDebugFeatures	1	Optional(false)	MoveBeforeEnabled	
+_internalDebugFeatures	1	Optional(false)	AnonymousBlockGenerationDisabled	Disable anonymous block generation for mixed blocks
+_internalDebugFeatures	2	Optional(true)	ShouldDropNearSuspendedAssertionAfterDelay	Causes processes to fully suspend after a delay
+_internalDebugFeatures	1	Optional(false)	DynamicSiteInterventionsEnabled	Enable dynamic site interventions for broken websites
+_internalDebugFeatures	2	Optional(true)	EnableAccessibilityOnDemand	Enable Accessibility On Demand
+_internalDebugFeatures	2	Optional(false)	EnumeratingAllNetworkInterfacesEnabled	
+_internalDebugFeatures	2	Optional(true)	EnumeratingVisibleNetworkInterfacesEnabled	
+_internalDebugFeatures	2	Optional(true)	ICECandidateFilteringEnabled	Enable ICE Candidate Filtering
+_internalDebugFeatures	2	Optional(false)	MockCaptureDevicesEnabled	Enable Mock Capture Devices
+_internalDebugFeatures	1	Optional(true)	BackgroundWebContentRunningBoardThrottlingEnabled	Enable background web content throttling via RunningBoard
+_internalDebugFeatures	2	Optional(false)	EnableDebuggingFeaturesInSandbox	Enable debugging features in sandbox
+_internalDebugFeatures	2	Optional(false)	ExperimentalSandboxEnabled	Enable experimental sandbox features
+_internalDebugFeatures	2	Optional(false)	HTMLEnhancedSelectParsingQuirkEnabled	Enable enhanced HTML select element parsing quirk for specific applications
+_internalDebugFeatures	2	Optional(true)	EnterKeyHintEnabled	Enable the enterKeyHint HTML attribute
+_internalDebugFeatures	2	Optional(true)	EventHandlerDrivenSmoothKeyboardScrollingEnabled	Enable EventHandler driven smooth keyboard scrolling
+_internalDebugFeatures	2	Optional(true)	ExposeCaptureDevicesAfterCaptureEnabled	Expose all capture devices when one is used
+_internalDebugFeatures	2	Optional(true)	ExposeDefaultSpeakerAsSpecificDeviceEnabled	Expose the system default speaker as a specific device
+_internalDebugFeatures	2	Optional(true)	ExtendedProofreadingEnabled	Enable Extended Proofreading
+_internalDebugFeatures	2	Optional(true)	FacebookLiveRecordingQuirkEnabled	Enable Facebook Live Recording Quirk
+_internalDebugFeatures	2	Optional(false)	ForceEnhancedSecurity	Force all navigations to use Enhanced Security
+_internalDebugFeatures	2	Optional(false)	ForceLockdownFontParserEnabled	Forcing the Lockdown Mode Safe Font Parser independently from Lockdown Mode state
+_internalDebugFeatures	2	Optional(false)	EnhancedSecurityForceDisabled	Disables Enhanced Security for all navigations
+_internalDebugFeatures	2	Optional(true)	FormControlRefreshEnabled	Enable form control refresh for Cocoa platforms
+_internalDebugFeatures	2	Optional(false)	IFrameResourceMonitoringTestingSettingsEnabled	Use Resource Monitoring Settings for testing
+_internalDebugFeatures	2	Optional(false)	IFrameResourceMonitoringEnabled	Enable Usage Monitoring of Frame Resource Support
+_internalDebugFeatures	1	Optional(false)	FullScreenKeyboardLock	Fullscreen API based Keyboard Lock
+_internalDebugFeatures	2	Optional(true)	CaptureAudioInGPUProcessEnabled	Enable audio capture in GPU Process
+_internalDebugFeatures	2	Optional(true)	BlockMediaLayerRehostingInWebContentProcess	GPU Process: Block Media Layer Re-hosting in WebContent process
+_internalDebugFeatures	2	Optional(true)	CaptureVideoInGPUProcessEnabled	Enable video capture in GPU Process
+_internalDebugFeatures	2	Optional(true)	UseGPUProcessForWebGLEnabled	Process all WebGL operations in GPU Process
+_internalDebugFeatures	2	Optional(true)	AcceleratedDrawingEnabled	Enable GraphicsLayer accelerated drawing
+_internalDebugFeatures	2	Optional(true)	HorizontalBannerViewOverlaysEnabled	Horizontal Banner View Overlays
+_internalDebugFeatures	2	Optional(false)	HostedBlurMaterialInMediaControlsEnabled	Enable hosted blur material in media controls
+_internalDebugFeatures	2	Optional(true)	IOSurfaceLosslessCompressionEnabled	Use losslessly compressed IOSurfaces
+_internalDebugFeatures	2	Optional(false)	IgnoreIframeEmbeddingProtectionsEnabled	Ignores X-Frame-Options and CSP ancestors
+_internalDebugFeatures	1	Optional(false)	ImageAnalysisDuringFindInPageEnabled	Trigger image analysis when performing Find-in-Page
+_internalDebugFeatures	1	Optional(false)	ImageControlsEnabled	Enable image controls
+_internalDebugFeatures	2	Optional(true)	IncludeIgnoredInCoreAXTree	When true, accessibility-is-ignored is not used to build the core, platform-agnostic accessibility tree, and i
+_internalDebugFeatures	2	Optional(false)	LayerBasedSVGEngineForceLayerCreationEnabled	Force the layer-based SVG Engine (LBSE) to create a RenderLayer for every SVG renderer (debugging only)
+_internalDebugFeatures	1	Optional(false)	LayerBasedSVGEngineEnabled	Enable next-generation layer-based SVG Engine (LBSE)
+_internalDebugFeatures	2	Optional(false)	LegacyLineLayoutVisualCoverageEnabled	Enable legacy line layout visual coverage
+_internalDebugFeatures	2	Optional(true)	MediaCaptureRequiresSecureConnection	Limit Media Capture to Secure Sites
+_internalDebugFeatures	1	Optional(false)	LinkSanitizerEnabled	Enable link sanitizer
+_internalDebugFeatures	2	Optional(false)	LocalFileContentSniffingEnabled	Enable Local File Content Sniffing
+_internalDebugFeatures	1	Optional(false)	LocalNetworkAccessEnabled	Enable Local Network Access
+_internalDebugFeatures	2	Optional(false)	LogsPageMessagesToSystemConsoleEnabled	Enable logging page messages to system console
+_internalDebugFeatures	1	Optional(false)	CoreMathMLEnabled	Disable features removed from the MathML Core spec.
+_internalDebugFeatures	2	Optional(true)	MomentumScrollingAnimatorEnabled	Generate momentum events in WebKit instead of using those delivered by the system
+_internalDebugFeatures	2	Optional(false)	MuteCameraOnMicrophoneInterruptionEnabled	Mute Camera on Microphone Interruption
+_internalDebugFeatures	2	Optional(false)	NavigatorUserAgentDataJavaScriptAPIEnabled	Enable the navigator.userAgentData JavaScript API
+_internalDebugFeatures	2	Optional(true)	NotificationEventEnabled	NotificationEvent and ServiceWorkerRegistration.showNotification() support
+_internalDebugFeatures	2	Optional(true)	AccessibilityThreadHitTestingEnabled	Serve accessibility hit tests off the main-thread
+_internalDebugFeatures	2	Optional(true)	EnableOpaqueLoadingForMedia	Enable opaque loading for media
+_internalDebugFeatures	2	Optional(true)	OpportunisticSweepingAndGarbageCollectionEnabled	Enable Opportunistic Sweeping and GC
+_internalDebugFeatures	2	Optional(true)	PageVisibilityBasedProcessSuppressionEnabled	Enable page visibility-based process suppression
+_internalDebugFeatures	2	Optional(true)	PictureInPicturePlaybackStateEnabled	Picture-in-Picture Playback State Enabled
+_internalDebugFeatures	2	Optional(true)	PointerLockEnabled	Enable the Pointer Lock API
+_internalDebugFeatures	2	Optional(false)	LegacyPluginQuirkForMailSignaturesEnabled	Quirk to get Mail to load signatures correctly with WebKitLegacy
+_internalDebugFeatures	2	Optional(true)	RTCEncodedStreamsQuirkEnabled	Enable RTC Encoded Streams Quirk
+_internalDebugFeatures	1	Optional(false)	RemoteMediaSessionManagerEnabled	Enable MediaSessionManager in the UI process
+_internalDebugFeatures	2	Optional(true)	RemoveBackgroundEnabled	Enable Remove Background
+_internalDebugFeatures	2	Optional(false)	LoginStatusAPIRequiresWebAuthnEnabled	Require a recent WebAuthn authentication to set login status
+_internalDebugFeatures	2	Optional(true)	SpeakerSelectionRequiresUserGesture	Require a user gesture for speaker selection
+_internalDebugFeatures	2	Optional(true)	GetUserMediaRequiresFocus	Require focus to start getUserMedia
+_internalDebugFeatures	2	Optional(true)	ResourceLoadSchedulingEnabled	Network process side priority and visibility based resource load scheduling
+_internalDebugFeatures	2	Optional(false)	ResourceUsageOverlayVisible	Make resource usage overlay visible
+_internalDebugFeatures	2	Optional(false)	RespondToThermalPressureAggressively	Enable responding to thermal pressure aggressively
+_internalDebugFeatures	1	Optional(false)	IsSameSiteStrictEnforcementEnabled	Enable SameSite strict enforcement to mitigate bounce tracking
+_internalDebugFeatures	2	Optional(true)	ScreenTimeEnabled	Enable Screen Time
+_internalDebugFeatures	2	Optional(false)	ScriptTrackingPrivacyLoggingEnabled	Script tracking privacy logging enabled
+_internalDebugFeatures	2	Optional(true)	ScriptTrackingPrivacyNetworkRequestBlockingEnabled	Block network requests to known tracking domains
+_internalDebugFeatures	2	Optional(true)	ScriptTrackingPrivacyProtectionsEnabled	Script tracking privacy protections enabled
+_internalDebugFeatures	2	Optional(false)	ScrollingPerformanceTestingEnabled	Enable behaviors used by scrolling performance tests
+_internalDebugFeatures	2	Optional(true)	SecureContextChecksEnabled	Allow access to HTTPS-only Web APIs over HTTP
+_internalDebugFeatures	1	Optional(false)	SiteIsolationSharedProcessEnabled	Put cross-site frames in a shared Web process
+_internalDebugFeatures	2	Optional(false)	ShowFrameProcessBordersEnabled	
+_internalDebugFeatures	1	Optional(false)	SiteIsolationEnabled	Put cross-origin iframes in a different process
+_internalDebugFeatures	2	Optional(false)	SlowFrameIndicatorVisible	Make slow frame indicator visible
+_internalDebugFeatures	1	Optional(false)	StorageAccessAPIPerPageScopeEnabled	When enabled, storage access granted to one frame is shared with all same-origin frames on the page
+_internalDebugFeatures	2	Optional(false)	ShouldTakeNearSuspendedAssertions	Take WebKit:NearSuspended assertions on background web content processes
+_internalDebugFeatures	2	Optional(true)	TextAnimationsEnabled	Text Animations
+_internalDebugFeatures	2	Optional(true)	TextEffectsEnabled	Text Effects
+_internalDebugFeatures	2	Optional(false)	TextExtractionDebugUIEnabled	Enable Text Extraction Debug UI
+_internalDebugFeatures	2	Optional(true)	TextExtractionFilterEnabled	Enable Text Extraction Filter
+_internalDebugFeatures	2	Optional(true)	TextRecognitionInVideosEnabled	Enable Text Recognition in Videos
+_internalDebugFeatures	2	Optional(false)	TiledScrollingIndicatorVisible	Make tiled scrolling indicator visible
+_internalDebugFeatures	2	Optional(false)	TopContentInsetBackgroundCanChangeAfterScrolling	Top content inset background can change after scrolling
+_internalDebugFeatures	2	Optional(false)	TwoUpPDFTrailingPageLeftAlignmentEnabled	In two-up PDF display mode, align the trailing odd page to the same column as the first page instead of center
+_internalDebugFeatures	1	Optional(false)	UndoManagerAPIEnabled	Enable the UndoManager DOM API
+_internalDebugFeatures	2	Optional(true)	UpgradeKnownHostsToHTTPSEnabled	Upgrade known hosts to HTTPS
+_internalDebugFeatures	2	Optional(false)	UseAVCaptureDeviceRotationCoordinatorAPI	Use AVCaptureDeviceRotationCoordinator API
+_internalDebugFeatures	2	Optional(false)	UseIFCForSVGText	Use IFC for SVG text rendering
+_internalDebugFeatures	1	Optional(false)	UseUIProcessForBackForwardItemLoading	Enable UIProcess-side BackForwardListFrameItem lookup for child frames during Back/Forward navigation
+_internalDebugFeatures	2	Optional(true)	UserGesturePromisePropagationEnabled	UserGesture Promise Propagation
+_internalDebugFeatures	2	Optional(true)	ServiceWorkersUserGestureEnabled	Validate UserGesture requirements in Service Workers
+_internalDebugFeatures	2	Optional(true)	VisualTranslationEnabled	Enable Visual Translation
+_internalDebugFeatures	1	Optional(false)	WebAPIStatisticsEnabled	Enable Web API Statistics
+_internalDebugFeatures	1	Optional(false)	WebAPIsInShadowRealmEnabled	Enable Web APIs to be exposed in ShadowRealm
+_internalDebugFeatures	2	Optional(false)	WebArchiveTestingModeEnabled	Enable web archive testing mode
+_internalDebugFeatures	1	Optional(true)	WebContentRestrictionsAskToEnabled	Enable Ask To for WebContentRestrictions
+_internalDebugFeatures	1	Optional(false)	WebXRWebGPUBindingsEnabled	Adds WebGPU support for WebXR
+_internalDebugFeatures	2	Optional(false)	WebInspectorEngineeringSettingsAllowed	
+_internalDebugFeatures	2	Optional(true)	WebRTCAudioLatencyAdaptationEnabled	Enable WebRTC Audio Latency Adaptation
+_internalDebugFeatures	2	Optional(true)	WebRTCDTMFEnabled	Enable WebRTC DTMF
+_internalDebugFeatures	2	Optional(true)	WebRTCH264HardwareEncoderEnabled	Enable H264 Hardware encoder
+_internalDebugFeatures	2	Optional(false)	WebRTCMediaPipelineAdditionalLoggingEnabled	Enable WebRTC Media Pipeline Additional Logging
+_internalDebugFeatures	2	Optional(true)	WebRTCRemoteVideoFrameEnabled	Enable WebRTC Remote Video Frame
+_internalDebugFeatures	2	Optional(true)	WebRTCSocketsProxyingEnabled	Enable WebRTC Sockets Proxying
+_internalDebugFeatures	2	Optional(false)	WebRTCSocketsServiceClassEnabled	Enable setting WebRTC Sockets Service Class
+_internalDebugFeatures	2	Optional(true)	WebRTCVP9Profile0CodecEnabled	Enable WebRTC VP9 profile 0 codec
+_internalDebugFeatures	2	Optional(false)	WebRTCInterfaceMonitoringViaNWEnabled	Enable WebRTC interface monitoring via NW
+_internalDebugFeatures	2	Optional(true)	WriteRichTextDataWhenCopyingOrDragging	Write RTF, RTFD and attributed strings to the pasteboard when copying or dragging
+_internalDebugFeatures	2	Optional(true)	XSLTEnabled	Enables support for XSLT
+_internalDebugFeatures	2	Optional(true)	IsARIANotifyEnabled	Enable ariaNotify support
+_internalDebugFeatures	1	Optional(false)	RequestStorageAccessThrowsExceptionUntilReload	requestStorageAccess throws execption until reload

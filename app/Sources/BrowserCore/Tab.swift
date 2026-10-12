@@ -1,6 +1,6 @@
 import Foundation
 
-public struct TabID: Hashable, Sendable { public let raw: UUID; public init(_ raw: UUID = UUID()) { self.raw = raw } }
+public struct TabID: Hashable, Sendable, Codable { public let raw: UUID; public init(_ raw: UUID = UUID()) { self.raw = raw } }
 
 public enum PressureLevel: Int, Sendable, Comparable {
   case normal = 0, warning, critical
@@ -22,6 +22,8 @@ public struct TabInfo: Sendable {
   public var isPictureInPicture = false
   public var isCapturing = false       // camera / microphone / screen capture
   public var isInCall = false          // WebRTC call / live connection
+  public var isDevToolsOpen = false    // inspector attached: the user is debugging this page
+  public var lastAudible: Date?        // when audio last stopped (grace period so a paused podcast/video isn't dropped at once)
   public var isDownloading = false
   public var hasUnsavedForm = false
   public var hasInflightUpload = false
