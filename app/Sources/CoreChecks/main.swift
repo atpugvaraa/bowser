@@ -532,5 +532,39 @@ do {
   let pt = Task { @MainActor in await m8.pass() }; try? await Task.sleep(nanoseconds: 40_000_000); m8.unregister(u1.id); _ = await pt.value
   check(m8.liveCount == 1, "manager: unregistering a tab mid-pass is safe")
 }
+// 17. SessionManager: recovery order, debounce, backup ring
+do {
+  func fresh(_ n: Int) -> BrowserState { var s = BrowserState(); let sp = s.addSpace(name: "S\(n)", profile: ProfileID()); for i in 0..<n { s.addTab(in: sp, url: "https://x.example/\(i)") }; return s }
+  // clean start, save, backup ring rotates through slots
+  let sp = tmpDB(); let s5 = fresh(5)
+  do {   // scoped: the first "process" must exit (close its connection) before the file is damaged, like a real crash + relaunch
+    let (mgr, st0, rec0) = try SessionManager.start(path: sp)
+    check(rec0 == .clean && st0 == BrowserState(), "session: first launch is clean and empty")
+    try mgr.save(s5)
+    let slots = try (0..<4).map { _ in try mgr.rotateBackup() }
+    check(slots == [0, 1, 2, 0], "session: backup ring cycles through 3 slots in place (\(slots))")
+  }
+  // main DB turned to garbage (overwritten in place), backup exists: recover from backup
+  try Data((0..<2048).map { _ in UInt8.random(in: 0...255) }).write(to: URL(fileURLWithPath: sp))
+  for sfx in ["-wal", "-shm"] where FileManager.default.fileExists(atPath: sp + sfx) { try Data().write(to: URL(fileURLWithPath: sp + sfx)) }
+  let (mgr2, st2, rec2) = try SessionManager.start(path: sp)
+  if case .restoredFromBackup = rec2 { check(st2 == s5, "session: corrupt main restored from the newest valid backup (\(st2.tabs.count) tabs)") } else { check(false, "session: corrupt main restored from backup (got \(rec2))") }
+  check((try? mgr2.save(fresh(7))) != nil && ((try? Store(path: sp).load())?.tabs.count == 7), "session: recovered store is writable and durable")
+  // corrupt main and NO backup: quarantine keeps the bytes, starts clean
+  let np = tmpDB(); let garbage = Data((0..<1024).map { _ in UInt8.random(in: 0...255) }); try garbage.write(to: URL(fileURLWithPath: np))
+  let (mgr3, st3, rec3) = try SessionManager.start(path: np)
+  if case .quarantined(let qp) = rec3 { check(st3 == BrowserState() && (try? Data(contentsOf: URL(fileURLWithPath: qp))) == garbage, "session: unrecoverable main is quarantined byte-for-byte and the app starts clean") } else { check(false, "session: unrecoverable main is quarantined (got \(rec3))") }
+  check((try? mgr3.save(fresh(2))) != nil, "session: clean store after quarantine accepts saves")
+  // debounce coalesces bursts into one write; flush writes immediately
+  let dp = tmpDB(); let (mgr4, _, _) = try SessionManager.start(path: dp, debounce: 0.2)
+  for n in 1...5 { mgr4.scheduleSave(fresh(n)) }
+  check((try? Store(path: dp).load()) == BrowserState(), "session: nothing written before the debounce window")
+  try await Task.sleep(nanoseconds: 450_000_000)
+  check((try? Store(path: dp).load().tabs.count) == 5, "session: burst of 5 scheduled saves coalesced into one (the last state, 5 tabs)")
+  mgr4.scheduleSave(fresh(9)); try mgr4.flush(); check((try? Store(path: dp).load().tabs.count) == 9, "session: flush() writes the pending state immediately")
+  // tab state blobs through the manager
+  let tid = TabID(); let blob = Data("history+scroll".utf8)
+  try mgr4.persistTabState(tid, blob); check(mgr4.tabState(tid) == blob, "session: tab restore state persists")
+}
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

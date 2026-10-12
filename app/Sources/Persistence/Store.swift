@@ -187,6 +187,20 @@ public final class Store: @unchecked Sendable {
     return dest
   }
 
+  /// Consistent online copy using SQLite's backup API; overwrites `dest` in place (so a fixed ring of slots needs no deletion).
+  public func backup(toPath dest: String) throws {
+    lock.lock(); defer { lock.unlock() }
+    var out: OpaquePointer?
+    guard sqlite3_open_v2(dest, &out, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let out else {
+      sqlite3_close(out); throw StoreError.open("backup destination: \(dest)")
+    }
+    defer { sqlite3_close(out) }
+    guard let b = sqlite3_backup_init(out, "main", db, "main") else { throw StoreError.sql("backup init: \(String(cString: sqlite3_errmsg(out)))") }
+    let rc = sqlite3_backup_step(b, -1); sqlite3_backup_finish(b)
+    guard rc == SQLITE_DONE else { throw StoreError.sql("backup step rc=\(rc)") }
+    chmod(dest, 0o600)
+  }
+
   // MARK: per-tab restore state (WebKit interactionState: history + scroll). Separate from BrowserState saves: big, changes often.
   public func setTabState(_ tab: TabID, _ state: Data?) throws {
     try transaction {
