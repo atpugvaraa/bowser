@@ -6,4 +6,4 @@ class H(http.server.SimpleHTTPRequestHandler):
         name=re.sub(r'[^A-Za-z0-9_-]','',self.path.split('name=')[-1])[:40] or 'x'
         open(f'../result-{name}.json','wb').write(b); self.send_response(200); self.end_headers()
     def log_message(self,*a): pass
-http.server.ThreadingHTTPServer(('127.0.0.1',8766),H).serve_forever()
+http.server.ThreadingHTTPServer(('127.0.0.1',int(sys.argv[1]) if len(sys.argv)>1 else 8766),H).serve_forever()

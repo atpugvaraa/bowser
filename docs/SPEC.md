@@ -22,6 +22,7 @@ Status labels per feature: not implemented / partial / implemented / blocked. No
 | C13 | Passwords/passkeys via system AutoFill + `web-browser.public-key-credential` | manual on real sites; entitlement route in docs/security |
 | C14 | Observability: signposts + metrics for memory/CPU/GPU per tab | harness |
 
+**Hibernation requirements (user, 2026-10-12):** all timings user-settable (grace, floors, per-pressure scale, live-tab budget; validated); idle tabs stay alive long (default 60 min, never <15 min except critical pressure); audio/video/PiP/capture/call tabs are never hibernated and keep playing in the background; hibernation never signs the user out (website data store untouched); learns per-host return habits; protected tabs show the reason.
 **Must (Phase 4)** hibernation (H1), archiving (H2), resource manager (H3), protected tabs (H4), soak vs Safari (H5).
 **Must (Phase 5)** extensions (E1 host, E2 popup/action UI, E3 permission review, E4 install from folder/zip/CRX, E5 matrix incl. Grammarly + uBO + password manager).
 **Later**: Spaces/sidebar/folders/favorites/split view/command palette, Handoff, iCloud sync, Boosts, devtools, reader/page-save/notes modules.

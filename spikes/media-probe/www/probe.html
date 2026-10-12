@@ -1,6 +1,6 @@
 <!doctype html><meta charset=utf-8><title>probe</title><body>probe<script>
 (async()=>{
-const r={ua:navigator.userAgent};
+const r={ua:navigator.userAgent,nonce:location.hash.slice(1)};
 const cfg=[{initDataTypes:['cenc','sinf','skd'],videoCapabilities:[{contentType:'video/mp4;codecs="hvc1.2.4.L153.B0"',robustness:''}],audioCapabilities:[{contentType:'audio/mp4;codecs="mp4a.40.2"'}]}];
 r.eme={};
 for(const ks of ['com.apple.fps','com.apple.fps.1_0','com.apple.fps.2_0','com.apple.fps.3_0','com.widevine.alpha','com.microsoft.playready']){
