@@ -1,0 +1,4 @@
+{"manifest_version":3,"name":"DNR control","version":"1.0","description":"static DNR block control",
+ "permissions":["declarativeNetRequest"],"host_permissions":["<all_urls>"],
+ "declarative_net_request":{"rule_resources":[{"id":"r1","enabled":true,"path":"rules.json"}]},
+ "background":{"service_worker":"bg.js"}}

@@ -47,3 +47,5 @@ Spikes are throwaway. These patterns must NOT carry into product code:
 - Unconditional `isInspectable = true`; `--eval` hook; force-unwrapped URLs from input; unretained-delegate fragility; repeating Timer capturing self.
 - Fixed: server.py filename sanitized (path traversal) and Content-Length bounded.
 - Data hygiene: the `vt` test app holds Netflix/YouTube logins in `~/Library/WebKit/dev.kd.vt` (+ Caches). Wipe when done testing.
+- Extension host needs: tab+window objects, controller delegate (`openWindowsFor`, `focusedWindowFor`), `didOpenWindow/didFocusWindow/didOpenTab/didActivateTab`, and `ctx.loadBackgroundContent()` after `ctl.load`. Messaging+storage then work. WebKit DNR static rules block (control). uBO Lite loads but doesn't block yet (undetermined).
+- Third-party extension zips: downloaded into scratchpad (untrusted), unpacked, granted all-URL access but only ever pointed at 127.0.0.1 pages.

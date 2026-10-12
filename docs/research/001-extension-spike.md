@@ -17,3 +17,9 @@
 - ABSENT: bookmarks, browserAction, browsingData, commands, declarativeContent, devtools, dns, downloads, history, identity, idle, management, nativeMessaging, notifications, offscreen, omnibox, pageAction, privacy, proxy, search, sessions, sidePanel, tabGroups, theme, topSites, userScripts, webRequestBlocking.
 - Caveats: absence may partly reflect the host not implementing delegates (e.g. nativeMessaging, notifications) rather than engine limits; MV3 only tested; no popup UI yet.
 - Implication: MV3 ad blockers via declarativeNetRequest are plausible; extensions needing offscreen/identity/downloads/history/nativeMessaging will not work unless the host implements/adapts them.
+
+## Update 2026-10-12: uBlock Origin Lite + DNR control
+- uBO Lite 2026.1012.1545 (chromium zip from GitHub release; kept outside the repo) loads in WKWebExtension: 0 manifest errors, background loaded, all-URL access, injected content, content-modification rules present. Granted perms: activeTab, alarms, declarativeNetRequest, scripting, storage, unlimitedStorage. Its `offscreen` and `userScripts` permissions are NOT supported by WebKit (absent from granted set).
+- **Control:** my own one-rule static DNR extension (`spikes/ext-spike/dnrext`) **blocks** `fetch` to the ad host (TypeError) => WebKit DNR blocking works through a minimal host.
+- **uBO Lite did NOT block** in the same harness (fetch + script tags; identical to no-extension baseline). Cause UNDETERMINED. Hypotheses: relies on offscreen/userScripts or install-time (`runtime.onInstalled`) init; localhost treated as trusted; ruleset enable logic. Next: enable `ctx.isInspectable` and read its background console via Web Inspector; test on a non-localhost origin.
+- Status: uBlock Origin Lite = BLOCKED/UNKNOWN pending investigation; DNR engine support = confirmed. Grammarly, Bitwarden = not yet tested (Grammarly needs an account login).

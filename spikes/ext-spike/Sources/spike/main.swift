@@ -50,11 +50,13 @@ Task { @MainActor in
     win.contentView = wv; win.orderFront(nil)
     try ctl.load(ctx)
     ctl.didOpenWindow(w); ctl.didFocusWindow(w); ctl.didOpenTab(t); ctl.didActivateTab(t, previousActiveTab: nil)
+    do { try await ctx.loadBackgroundContent(); print("background loaded") } catch { print("background load error:", error) }
     try? await Task.sleep(nanoseconds: 1_500_000_000)
     wv.load(URLRequest(url: url))
-    try? await Task.sleep(nanoseconds: 3_000_000_000)
+    try? await Task.sleep(nanoseconds: 8_000_000_000)
     let r = try await wv.evaluateJavaScript("document.documentElement.getAttribute('data-ext') + ' | ' + document.documentElement.getAttribute('data-bg')")
     print("RESULT:", r ?? "nil")
+    print("loaded=\(ctx.isLoaded) allURLs=\(ctx.hasAccessToAllURLs) denied=\(ctx.deniedPermissions.keys.map { String(describing: $0) }.sorted()) injected=\(ctx.hasInjectedContent) cmrules=\(ctx.hasContentModificationRules) perms=\(ctx.currentPermissions.map{String(describing:$0)}.sorted())")
     print("ctx errors:", ctx.errors.map(\.localizedDescription))
   } catch { print("FAIL:", error) }
   exit(0)
