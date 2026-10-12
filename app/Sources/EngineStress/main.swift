@@ -199,6 +199,28 @@ Task { @MainActor in
   let dec = HibernationPolicy.evaluate(tabs: infos, pressure: .normal, usage: UsageModel(), now: Date())
   if dec.hibernate.contains(tabs[0].id) { fail("policy would hibernate the tab with a dirty form") } else { log("- policy kept the dirty-form tab (\(dec.protected[tabs[0].id]?.map(\.rawValue) ?? []))") }
 
+  // 8. LifecycleManager over REAL tabs/signals: clock +3 h => idle tabs hibernate, protected + active stay
+  do {
+    let mgr = LifecycleManager(config: .relaxed, clock: { Date().addingTimeInterval(3 * 3600) })
+    for (i, t) in tabs.enumerated() { t.isActive = false; mgr.register(t, host: "site\(i % 6).example", lastActive: Date()) }
+    mgr.register(st, host: "sse.example", lastActive: Date())            // live EventSource: grace x3 (270 min) => survives 3 h
+    // keep tab 0 (dirty form) and make tab 5 the active one
+    for t in tabs where !t.isLive { _ = t.ensureLiveView() }
+    _ = await waitUntil(60) { tabs.allSatisfy { $0.webView?.isLoading != true } }
+    try? await Task.sleep(nanoseconds: 1_000_000_000)
+    mgr.activate(tabs[5].id)
+    let before = mgr.liveCount
+    let rep = await mgr.pass()
+    let liveIDs = Set(tabs.filter { $0.isLive }.map(\.id))
+    log("- manager over real tabs (+3 h): live \(before) -> \(mgr.liveCount); hibernated \(rep.hibernated.count); protected: \(rep.protected.values.flatMap { $0 }.map(\.rawValue).sorted().joined(separator: ","))")
+    if !liveIDs.contains(tabs[5].id) { fail("manager hibernated the ACTIVE tab") }
+    if !liveIDs.contains(tabs[0].id) { fail("manager hibernated the tab with unsaved form input") }
+    if !st.isLive { fail("manager hibernated the live-EventSource tab inside its extended grace") }
+    if mgr.liveCount > 4 { fail("manager left \(mgr.liveCount) live tabs; expected only protected/active/connection tabs") }
+    mgr.activate(tabs[7].id); _ = await waitUntil(30) { tabs[7].webView?.isLoading == false && tabs[7].webView?.url != nil }
+    if tabs[7].isLive && tabs[7].webView?.url != nil { log("- manager.activate resumed a hibernated real tab") } else { fail("manager.activate did not resume the tab") }
+  }
+
   log("\n**Result:** \(failures.isEmpty ? "PASS" : "FAIL (\(failures.count))")")
   if let p = outPath { try? report.joined(separator: "\n").write(toFile: p, atomically: true, encoding: .utf8) }
   exit(failures.isEmpty ? 0 : 1)

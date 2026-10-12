@@ -3,22 +3,11 @@ import BrowserCore
 import Darwin
 import WebKit
 
-/// Live signals the lifecycle policy needs (filled from WebKit, no policy here).
-public struct TabSignals: Sendable {
-  public var isLoading = false
-  public var isPlayingMedia = false      // playing (incl. muted video), not paused/suspended
-  public var isCapturing = false         // camera or microphone active
-  public var hasDirtyForm = false        // user typed into a field (any frame) and has not submitted
-  public var hasLiveConnection = false   // open WebSocket / EventSource in any frame
-  public var isUnresponsive = false      // WebContent did not answer in time (hung): shedding it is allowed, its state is unrecoverable anyway
-  public init() {}
-}
-
 /// One browser tab backed by WKWebView. The web view exists only while live: hibernate() destroys it
 /// (freeing the WebContent process memory) and keeps just enough to restore (URL, history, scroll via interactionState).
 /// The website data store lives in the shared configuration, so cookies/logins survive hibernation.
 @MainActor
-public final class WebKitTab: NSObject, WKNavigationDelegate {
+public final class WebKitTab: NSObject, WKNavigationDelegate, EngineTab {
   public let id: TabID
   public private(set) var url: URL?
   public private(set) var title: String = ""
@@ -75,6 +64,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate {
   }
 
   public var isLive: Bool { webView != nil }
+  @discardableResult public func ensureLiveView() -> Bool { let was = webView == nil; ensureLive(); return was }
   public func setURL(_ u: URL) { url = u }
 
   /// Make the tab live (creating the web view if hibernated) and return it.

@@ -459,5 +459,78 @@ do {
   check(a1.count == 1 && a2.count == 1 && a1[0].host == a2[0].host && a1[0].tab == a2[0].tab, "recording continues after the file vanished, with the same salt")
   check((((try FileManager.default.attributesOfItem(atPath: mvPath))[.posixPermissions] as? Int) ?? 0) & 0o077 == 0, "recreated usage log is 0600")
 }
+// 16. LifecycleManager (engine-agnostic orchestration) with fake tabs
+@MainActor final class FakeTab: EngineTab {
+  let id = TabID(); var live = true; var isActive = false; var sig = TabSignals(); var delayMs = 0; var hibernations = 0; var wasResumed = 0
+  var isLive: Bool { live }
+  func signals(timeout: TimeInterval) async -> TabSignals {
+    if delayMs > 0 { try? await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000) }
+    return sig
+  }
+  @discardableResult func hibernate(force: Bool) -> Bool { if isActive && !force { return false }; if !live { return false }; live = false; hibernations += 1; return true }
+  @discardableResult func ensureLiveView() -> Bool { let was = !live; live = true; if was { wasResumed += 1 }; return was }
+}
+do {
+  @MainActor func world(pressure: @escaping () -> PressureLevel = { .normal }, config: PolicyConfig = .relaxed) -> (LifecycleManager, () -> Date, (TimeInterval) -> Void) {
+    nonisolated(unsafe) var clockNow = Date(timeIntervalSince1970: 5_000_000)
+    let m = LifecycleManager(config: config, clock: { clockNow }, pressure: pressure)
+    return (m, { clockNow }, { clockNow = clockNow.addingTimeInterval($0) })
+  }
+  let (m1, _, adv1) = world()
+  let t1 = (0..<4).map { _ in FakeTab() }
+  for (i, t) in t1.enumerated() { m1.register(t, host: "site\(i).example") }
+  adv1(3 * 3600)
+  m1.activate(t1[0].id)
+  t1[1].sig.hasDirtyForm = true; t1[2].sig.isPlayingMedia = true
+  let r1 = await m1.pass()
+  check(r1.hibernated == [t1[3].id] && t1[0].live && t1[1].live && t1[2].live && !t1[3].live, "manager: hibernates only the idle unprotected tab (active, dirty form, playing media kept)")
+  check(r1.protected[t1[1].id] == [.unsavedForm] && r1.protected[t1[2].id] == [.playingMedia] && r1.protected[t1[0].id] == [.active], "manager: reports WHY each tab was kept")
+
+  // user switches tab while signals are still being gathered: the freshest isActive wins
+  let (m2, _, adv2) = world()
+  let slow = FakeTab(), other = FakeTab(), idle3 = FakeTab(); slow.delayMs = 250
+  m2.register(slow, host: "slow.example"); m2.register(other, host: "other.example"); m2.register(idle3, host: "idle.example"); adv2(5 * 3600)
+  m2.activate(other.id)
+  let passTask = Task { @MainActor in await m2.pass() }
+  try? await Task.sleep(nanoseconds: 80_000_000)
+  m2.activate(slow.id)                                 // user switches to the slow tab mid-pass
+  let r2 = await passTask.value
+  check(slow.live && slow.hibernations == 0 && other.live && r2.hibernated == [idle3.id], "manager: tab the user switched to mid-pass is NOT hibernated, the one just left is fresh, only the idle tab goes")
+
+  // hung tab: shedding allowed and reported
+  let (m3, _, adv3) = world(); let hung = FakeTab(), live3 = FakeTab(); hung.sig.isUnresponsive = true
+  m3.register(hung, host: "hung.example"); m3.register(live3, host: "ok.example"); adv3(5 * 3600); m3.activate(live3.id)
+  let r3 = await m3.pass()
+  check(r3.unresponsive == [hung.id] && !hung.live, "manager: a hung (unresponsive) tab is reported and may be hibernated")
+
+  // habit learning through activation
+  let (m4, _, adv4) = world(); let ha = FakeTab(), hb = FakeTab()
+  m4.register(ha, host: "docs.example"); m4.register(hb, host: "mail.example")
+  m4.activate(ha.id); adv4(60); m4.activate(hb.id); adv4(20 * 60); m4.activate(ha.id)
+  check(abs((m4.usage.expectedGap(host: "docs.example") ?? 0) - 20 * 60) < 1, "manager: learns the idle gap between leaving a tab and returning to it (20 min)")
+  check(m4.activeTab == ha.id && ha.isActive && !hb.isActive, "manager: exactly one active tab")
+
+  // hibernated tab is resumed on activate
+  let (m5, _, adv5) = world(); let cold = FakeTab(), foc = FakeTab()
+  m5.register(cold, host: "c.example"); m5.register(foc, host: "f.example"); adv5(5 * 3600); m5.activate(foc.id); _ = await m5.pass()
+  check(!cold.live, "setup: cold tab hibernated")
+  m5.activate(cold.id); check(cold.live && cold.wasResumed == 1 && cold.isActive, "manager: activating a hibernated tab resumes it")
+
+  // pressure changes the outcome; sleep/wake does not mass-hibernate
+  nonisolated(unsafe) var lvl = PressureLevel.normal
+  var neutral = PolicyConfig(); neutral.maxLive = .init(normal: 100, warning: 100, critical: 100)
+  let (m6, _, adv6) = world(pressure: { lvl }, config: neutral); let p6 = FakeTab(), p6b = FakeTab()
+  m6.register(p6, host: "p.example"); m6.register(p6b, host: "q.example"); adv6(20 * 60); m6.activate(p6b.id)
+  let calm = await m6.pass(); check(calm.hibernated.isEmpty, "manager: 20 min idle is fine at normal pressure")
+  lvl = .critical; let tight = await m6.pass(); check(tight.hibernated == [p6.id], "manager: same tab is released at critical pressure")
+  let (m7, _, adv7) = world(); let w1 = FakeTab(), w2 = FakeTab(); m7.register(w1, host: "w.example"); m7.register(w2, host: "z.example")
+  adv7(10 * 3600); m7.noteWake(); m7.activate(w2.id); let rw = await m7.pass()
+  check(rw.hibernated.isEmpty && w1.live, "manager: after a wake from sleep nothing is hibernated for being 'idle' across the sleep")
+
+  // unregister while awaiting signals must not crash
+  let (m8, _, adv8) = world(); let u1 = FakeTab(), u2 = FakeTab(); u1.delayMs = 150; m8.register(u1, host: "u1"); m8.register(u2, host: "u2"); adv8(5 * 3600); m8.activate(u2.id)
+  let pt = Task { @MainActor in await m8.pass() }; try? await Task.sleep(nanoseconds: 40_000_000); m8.unregister(u1.id); _ = await pt.value
+  check(m8.liveCount == 1, "manager: unregistering a tab mid-pass is safe")
+}
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)
