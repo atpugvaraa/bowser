@@ -9,6 +9,7 @@ public struct TabSignals: Sendable {
   public var isPlayingMedia = false      // playing (incl. muted video), not paused/suspended
   public var isCapturing = false         // camera or microphone active
   public var hasDirtyForm = false        // user typed into a field (any frame) and has not submitted
+  public var hasLiveConnection = false   // open WebSocket / EventSource in any frame
   public var isUnresponsive = false      // WebContent did not answer in time (hung): shedding it is allowed, its state is unrecoverable anyway
   public init() {}
 }
@@ -23,6 +24,9 @@ public final class WebKitTab: NSObject, WKNavigationDelegate {
   public private(set) var title: String = ""
   public private(set) var webView: WKWebView?
   public private(set) var hibernateCount = 0
+  /// Set by the owner while this tab is selected in any window. hibernate() refuses an active tab unless forced
+  /// (the user may have switched to it while a slow policy pass was running).
+  public var isActive = false
   public private(set) var crashCount = 0
   public private(set) var restoredFromState = false      // last resume used saved history (false = fell back to a plain URL load)
   public private(set) var isCrashLooping = false
@@ -46,6 +50,23 @@ public final class WebKitTab: NSObject, WKNavigationDelegate {
       addEventListener('pagehide', function(){ post(false); }, true); })();
     """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
 
+  /// Counts open WebSocket / EventSource objects per frame (page-created, main-world). Workers' sockets are not visible.
+  static let connScript = WKUserScript(source: """
+    (function(){ if (window.__bconnInstalled) return; window.__bconnInstalled = true;
+      var id = Math.random().toString(36).slice(2), open = 0;
+      function report(){ try { window.webkit.messageHandlers.bconn.postMessage({id: id, n: open}); } catch(e){} }
+      function wrap(name){ var Orig = window[name]; if (!Orig || typeof Proxy !== 'function') return;
+        var P = new Proxy(Orig, { construct: function(target, args, newTarget){
+          var s = Reflect.construct(target, args, newTarget === P ? target : newTarget); open++; report(); var done = false;
+          function fin(){ if (!done) { done = true; open = Math.max(0, open - 1); report(); } }
+          try { s.addEventListener('close', fin); s.addEventListener('error', function(){ if (s.readyState === 2) fin(); });
+            var oc = s.close; s.close = function(){ fin(); return oc.apply(this, arguments); }; } catch(e){}
+          return s; } });
+        window[name] = P; }
+      wrap('WebSocket'); wrap('EventSource');
+      addEventListener('pagehide', function(){ open = 0; report(); }, true); })();
+    """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+
   /// `configuration` carries the profile's WKWebsiteDataStore; share one per profile.
   public init(id: TabID = TabID(), url: URL?, configuration: WKWebViewConfiguration) {
     self.id = id; self.url = url; self.configuration = configuration
@@ -62,6 +83,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate {
     let w = WKWebView(frame: .init(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
     w.navigationDelegate = self
     webView = w
+    DirtyTracker.shared.forget(w)                    // a recycled object address must not inherit another view's state
     if let s = savedState, let obj = try? NSKeyedUnarchiver.unarchivedObject(ofClasses: [NSData.self, NSDictionary.self, NSArray.self, NSString.self, NSNumber.self, NSURL.self, NSDate.self], from: s) {
       w.interactionState = obj                       // restores history + scroll + form hints
       restoredFromState = true
@@ -70,8 +92,9 @@ public final class WebKitTab: NSObject, WKNavigationDelegate {
   }
 
   /// Destroy the web view, keeping restorable state. Returns false if already hibernated.
-  @discardableResult public func hibernate() -> Bool {
+  @discardableResult public func hibernate(force: Bool = false) -> Bool {
     guard let w = webView else { return false }
+    if isActive && !force { return false }
     url = w.url ?? url; title = w.title ?? title
     if let st = w.interactionState, let data = try? NSKeyedArchiver.archivedData(withRootObject: st, requiringSecureCoding: false) { savedState = data } else { savedState = nil }   // never keep a stale state over a newer url
     DirtyTracker.shared.forget(w)
@@ -90,6 +113,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate {
     s.isLoading = w.isLoading
     s.isCapturing = w.cameraCaptureState != .none || w.microphoneCaptureState != .none
     s.hasDirtyForm = DirtyTracker.shared.isDirty(w)
+    s.hasLiveConnection = DirtyTracker.shared.hasConnection(w)
     let state: Int? = await roundTrip(timeout) { done in w.requestMediaPlaybackState { done($0.rawValue) } }
     if let state { s.isPlayingMedia = state == WKMediaPlaybackState.playing.rawValue } else { s.isUnresponsive = true }
     return s
@@ -124,6 +148,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate {
   public func webView(_ w: WKWebView, didFinish n: WKNavigation!) { url = w.url ?? url; title = w.title ?? title; onChange?() }
   public func webViewWebContentProcessDidTerminate(_ w: WKWebView) {
     crashCount += 1
+    DirtyTracker.shared.forget(w)                    // the dead process's dirty frames / sockets are gone
     onCrash?()                                       // caller decides: reload (default) or show crash page
   }
   /// Default crash recovery: reload the last URL in the same web view.
@@ -146,20 +171,42 @@ final class Once: @unchecked Sendable {
 @MainActor
 final class DirtyTracker: NSObject, WKScriptMessageHandler {
   static let shared = DirtyTracker()
-  private var dirtyFrames: [ObjectIdentifier: Set<String>] = [:]
-  private static var installed = Set<ObjectIdentifier>()
+  static let dirtyMaxAge: TimeInterval = 12 * 3600      // a page can lie; an unsaved-input claim protects a tab for at most 12 h
+  static let maxFramesPerView = 64
+  private var dirtyFrames: [ObjectIdentifier: [String: Date]] = [:]
+  private var connFrames: [ObjectIdentifier: [String: Int]] = [:]
+  private struct WeakUCC { weak var v: WKUserContentController? }
+  private static var installed: [ObjectIdentifier: WeakUCC] = [:]
   static func install(on config: WKWebViewConfiguration) {
-    let key = ObjectIdentifier(config.userContentController)
-    guard installed.insert(key).inserted else { return }
-    config.userContentController.addUserScript(WebKitTab.dirtyScript)
-    config.userContentController.add(WeakHandler(shared), name: "bdirty")
+    let ucc = config.userContentController, key = ObjectIdentifier(ucc)
+    if let w = installed[key], w.v === ucc { return }          // same live controller already set up
+    installed = installed.filter { $0.value.v != nil }          // drop dead entries (address reuse can't fool us)
+    installed[key] = WeakUCC(v: ucc)
+    ucc.addUserScript(WebKitTab.dirtyScript)
+    ucc.addUserScript(WebKitTab.connScript)
+    ucc.add(WeakHandler(shared), name: "bdirty")
+    ucc.add(WeakHandler(shared), name: "bconn")
   }
-  func isDirty(_ w: WKWebView) -> Bool { !(dirtyFrames[ObjectIdentifier(w)]?.isEmpty ?? true) }
-  func forget(_ w: WKWebView) { dirtyFrames[ObjectIdentifier(w)] = nil }
+  func isDirty(_ w: WKWebView, now: Date = Date()) -> Bool {
+    (dirtyFrames[ObjectIdentifier(w)] ?? [:]).values.contains { now.timeIntervalSince($0) < DirtyTracker.dirtyMaxAge }
+  }
+  func hasConnection(_ w: WKWebView) -> Bool { (connFrames[ObjectIdentifier(w)] ?? [:]).values.contains { $0 > 0 } }
+  func forget(_ w: WKWebView) { dirtyFrames[ObjectIdentifier(w)] = nil; connFrames[ObjectIdentifier(w)] = nil }
   func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
-    guard let w = m.webView, let body = m.body as? [String: Any], let id = body["id"] as? String, let d = body["dirty"] as? Bool else { return }
+    guard let w = m.webView, let body = m.body as? [String: Any], let id = body["id"] as? String,
+          id.count >= 1, id.count <= 40, id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return }   // hostile/oversized ids ignored
     let k = ObjectIdentifier(w)
-    if d { dirtyFrames[k, default: []].insert(id) } else { dirtyFrames[k]?.remove(id) }
+    if m.name == "bconn" {
+      guard let n = body["n"] as? Int else { return }
+      if n <= 0 { connFrames[k]?[id] = nil; return }
+      if connFrames[k]?[id] == nil, (connFrames[k]?.count ?? 0) >= DirtyTracker.maxFramesPerView { return }
+      connFrames[k, default: [:]][id] = min(n, 1000); return
+    }
+    guard let d = body["dirty"] as? Bool else { return }
+    if d {
+      if dirtyFrames[k]?[id] == nil, (dirtyFrames[k]?.count ?? 0) >= DirtyTracker.maxFramesPerView { return }
+      dirtyFrames[k, default: [:]][id] = Date()
+    } else { dirtyFrames[k]?[id] = nil }
   }
 }
 final class WeakHandler: NSObject, WKScriptMessageHandler {

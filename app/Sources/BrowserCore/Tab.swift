@@ -22,6 +22,7 @@ public struct TabInfo: Sendable {
   public var isPictureInPicture = false
   public var isCapturing = false       // camera / microphone / screen capture
   public var isInCall = false          // WebRTC call / live connection
+  public var hasLiveConnection = false // open WebSocket / EventSource: hibernating drops live state (soft signal: longer grace)
   public var isDevToolsOpen = false    // inspector attached: the user is debugging this page
   public var lastAudible: Date?        // when audio last stopped (grace period so a paused podcast/video isn't dropped at once)
   public var isDownloading = false

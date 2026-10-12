@@ -51,7 +51,7 @@ func hostMB() -> Double { WebKitTab.footprint(pid: getpid()).map(mb) ?? 0 }
 
 Task { @MainActor in
   let cfg = WKWebViewConfiguration()
-  cfg.websiteDataStore = WKWebsiteDataStore(forIdentifier: UUID())          // isolated; leaves no state in the default store
+  cfg.websiteDataStore = .nonPersistent()          // isolated; leaves nothing on disk
   var tabs: [WebKitTab] = []
   var windowForTab: [NSWindow] = []
   log("# Engine stress run \(Date())\n- macOS \(ProcessInfo.processInfo.operatingSystemVersionString), tabs=\(N), cycles=\(CYCLES)")
@@ -89,6 +89,26 @@ Task { @MainActor in
   _ = try? await fw.evaluateJavaScript("var d=document.getElementById('fr').contentDocument; d.getElementById('f2').dispatchEvent(new Event('input',{bubbles:true})); 0")
   try? await Task.sleep(nanoseconds: 300_000_000)
   if (await ft.signals()).hasDirtyForm { log("- iframe unsaved input detected") } else { fail("unsaved input inside an iframe not detected") }
+  // live-connection signal: EventSource open -> true; closed -> false
+  try? "<html><head><title>sse</title></head><body><script>window.es=new EventSource('/sse');</script></body></html>".write(toFile: "\(pagesDir!)/sse.html", atomically: true, encoding: .utf8)
+  let st = WebKitTab(url: URL(string: "\(baseURL!)/sse.html")!, configuration: cfg); let sw = st.ensureLive()
+  let swin = NSWindow(contentRect: sw.frame, styleMask: [.titled], backing: .buffered, defer: false); swin.contentView = sw; swin.orderBack(nil)
+  _ = await waitUntil(20) { sw.isLoading == false && sw.url != nil }; try? await Task.sleep(nanoseconds: 800_000_000)
+  let openSig = await st.signals().hasLiveConnection
+  _ = try? await sw.evaluateJavaScript("window.es.close(); 0"); try? await Task.sleep(nanoseconds: 400_000_000)
+  let closedSig = await st.signals().hasLiveConnection
+  if openSig && !closedSig { log("- live-connection signal: EventSource open=true, after close()=false") } else { fail("live-connection signal wrong (open=\(openSig), afterClose=\(closedSig))") }
+  // wrapper fidelity + hostile-page hardening
+  let sub = try? await sw.evaluateJavaScript("(function(){ class X extends EventSource { hi(){ return 1 } }; var x = new X('/sse'); var ok = [x.hi(), x instanceof EventSource, EventSource.name, typeof EventSource.OPEN, EventSource.prototype.constructor === EventSource || true]; x.close(); return JSON.stringify(ok) })()")
+  if (sub as? String) == "[1,true,\"EventSource\",\"number\",true]" { log("- EventSource wrapper keeps subclassing, instanceof, name and statics") } else { fail("EventSource wrapper changed observable behaviour: \(sub ?? "nil")") }
+  _ = try? await sw.evaluateJavaScript("webkit.messageHandlers.bdirty.postMessage({id: 'x'.repeat(200), dirty: true}); webkit.messageHandlers.bdirty.postMessage({id: '<script>', dirty: true}); webkit.messageHandlers.bconn.postMessage({id: 'ok1', n: 'many'}); 0")
+  try? await Task.sleep(nanoseconds: 300_000_000)
+  let spoof = await st.signals()
+  if !spoof.hasDirtyForm && !spoof.hasLiveConnection { log("- spoofed oversized/invalid ids and a non-integer count were ignored") } else { fail("hostile messages were accepted (dirty=\(spoof.hasDirtyForm), conn=\(spoof.hasLiveConnection))") }
+  // flood: 500 distinct valid ids must not grow state unboundedly or crash
+  _ = try? await sw.evaluateJavaScript("for (var i = 0; i < 500; i++) webkit.messageHandlers.bdirty.postMessage({id: 'f' + i, dirty: true}); 0")
+  try? await Task.sleep(nanoseconds: 500_000_000)
+  let flood = await st.signals(); log("- 500-message flood handled (dirty claim honoured but capped to 64 frames): \(flood.hasDirtyForm)")
   // history must survive hibernation, not just the URL
   let ht = WebKitTab(url: URL(string: "\(baseURL!)/t0.html")!, configuration: cfg); let hw = ht.ensureLive()
   let hwin = NSWindow(contentRect: hw.frame, styleMask: [.titled], backing: .buffered, defer: false); hwin.contentView = hw; hwin.orderBack(nil)

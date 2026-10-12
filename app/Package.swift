@@ -13,6 +13,8 @@ let package = Package(
     .target(name: "EngineWebKit", dependencies: ["BrowserCore"]),
     .target(name: "Resources", dependencies: ["BrowserCore"]),
     .executableTarget(name: "EngineStress", dependencies: ["BrowserCore", "Lifecycle", "EngineWebKit"]),
+    .executableTarget(name: "PolicySim", dependencies: ["BrowserCore", "Lifecycle"]),
+    .executableTarget(name: "EngineScale", dependencies: ["BrowserCore", "Lifecycle", "EngineWebKit", "Persistence", "Resources"]),
     .executableTarget(name: "CoreChecks", dependencies: ["BrowserCore", "Lifecycle", "Persistence", "Resources"]),
   ]
 )

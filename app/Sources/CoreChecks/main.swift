@@ -86,8 +86,35 @@ check(dec.defaultGrace == mine.defaultGrace && dec.maxLive.critical == mine.maxL
 
 // 5. Adaptive: habitual quick-return host kept live ~1.5x its gap; rare hosts use the default.
 var usage = UsageModel(); for _ in 0..<5 { usage.recordReactivation(host: "docs.example", idleSeconds: 20 * min) }
-check(hib([tab("docs.example", idle: 25 * min)], usage: usage).isEmpty, "habitual host kept live until ~1.5x gap (floor 15 min)")
-check(hib([tab("docs.example", idle: 31 * min)], usage: usage).count == 1, "habitual host released after 1.5x gap")
+check(hib([tab("docs.example", idle: 55 * min)], usage: usage).isEmpty, "habitual host (gap 20 min) kept live ~3x its gap (60 min)")
+check(hib([tab("docs.example", idle: 61 * min)], usage: usage).count == 1, "habitual host released after ~3x its gap")
+var coldU = UsageModel(); for _ in 0..<5 { coldU.recordReactivation(host: "rare.example", idleSeconds: 3 * 3600) }
+check(hib([tab("rare.example", idle: 14 * min)], usage: coldU).isEmpty && hib([tab("rare.example", idle: 16 * min)], usage: coldU).count == 1, "cold host (usual gap 3 h) is released early (min grace 15 min)")
+var hotU = UsageModel(); for _ in 0..<5 { hotU.recordReactivation(host: "chat.example", idleSeconds: 2 * min) }
+check(hib([tab("chat.example", idle: 14 * min)], usage: hotU).isEmpty, "hot host never dropped below the min grace")
+var bigGap = UsageModel(); for _ in 0..<5 { bigGap.recordReactivation(host: "slowish.example", idleSeconds: 40 * min) }
+check(hib([tab("slowish.example", idle: 100 * min)], usage: bigGap).isEmpty && hib([tab("slowish.example", idle: 125 * min)], usage: bigGap).count == 1, "gap 40 min -> grace 120 min (3x)")
+// budget: shed the tab whose OWN grace would expire soonest (cold before habitual)
+var ob = PolicyConfig(); ob.maxLive = .init(normal: 1, warning: 1, critical: 1)
+var coldHot = UsageModel(); for _ in 0..<5 { coldHot.recordReactivation(host: "habit.example", idleSeconds: 20 * min); coldHot.recordReactivation(host: "rare.example", idleSeconds: 3 * 3600) }
+let habitTab = tab("habit.example", idle: 10 * min), rareTab = tab("rare.example", idle: 10 * min)
+check(hib([habitTab, rareTab], usage: coldHot, config: ob) == [rareTab.id], "over budget: the cold tab (grace 15 min) is shed before the habitual one (grace 60 min)")
+check(hib([rareTab, habitTab], usage: coldHot, config: ob) == [rareTab.id], "budget order does not depend on input order")
+// smooth taper: no cliff at coldGap
+var taper = UsageModel(); for _ in 0..<5 { taper.recordReactivation(host: "t45", idleSeconds: 45 * min); taper.recordReactivation(host: "t46", idleSeconds: 46 * min) }
+let g45 = HibernationPolicy.grace(for: tab("t45", idle: 0), pressure: .normal, usage: taper, config: PolicyConfig()), g46 = HibernationPolicy.grace(for: tab("t46", idle: 0), pressure: .normal, usage: taper, config: PolicyConfig())
+check(abs(g46 - g45) < 0.1 * g45, "grace tapers smoothly across coldGap (45 min -> \(Int(g45 / 60)) min, 46 min -> \(Int(g46 / 60)) min)")
+// censored observations raise, never lower
+var cens = UsageModel(); cens.recordReactivation(host: "h", idleSeconds: 10 * min); let gapBefore = cens.expectedGap(host: "h")!
+cens.recordNoReturn(host: "h", idleSeconds: 5 * min); check(cens.expectedGap(host: "h") == gapBefore, "no-return shorter than the gap changes nothing")
+cens.recordNoReturn(host: "h", idleSeconds: 4 * 3600); check(cens.expectedGap(host: "h")! > gapBefore, "no-return observation raises the learned gap")
+var nanAlpha = UsageModel(); nanAlpha.alpha = .nan; nanAlpha.recordReactivation(host: "x", idleSeconds: 60); nanAlpha.recordReactivation(host: "x", idleSeconds: 120)
+check(nanAlpha.expectedGap(host: "x")?.isFinite == true, "NaN alpha cannot poison the model")
+// grace products stay bounded; floors monotone
+var huge = PolicyConfig(); huge.pinnedMultiplier = 20; huge.liveConnectionMultiplier = 20; huge.maxGrace = 7 * 86_400; huge.defaultGrace = 7 * 86_400
+check(HibernationPolicy.grace(for: tab("a", idle: 0) { $0.isPinned = true; $0.hasLiveConnection = true }, pressure: .normal, usage: UsageModel(), config: huge.validated()) <= 7 * 86_400, "pinned x live-connection x default grace is capped at 7 days")
+var inv = PolicyConfig(); inv.budgetFloor = .init(normal: 60, warning: 600, critical: 3000)
+let iv = inv.validated(); check(iv.budgetFloor.critical <= iv.budgetFloor.warning && iv.budgetFloor.warning <= iv.budgetFloor.normal, "budget floors are monotone after validation")
 check(hib([tab("rare.example", idle: 31 * min)], usage: usage).isEmpty, "unknown host uses default grace")
 var tiny = UsageModel(); tiny.recordReactivation(host: "x", idleSeconds: .nan); tiny.recordReactivation(host: "z", idleSeconds: .infinity); tiny.recordReactivation(host: "y", idleSeconds: -10)
 check(tiny.gaps["x"] == nil && tiny.gaps["z"] == nil && tiny.gaps["y"] == 0, "usage model ignores NaN/inf, clamps negatives")
@@ -106,8 +133,15 @@ var bc = PolicyConfig(); bc.maxLive = .init(normal: 5, warning: 5, critical: 5)
 let d = hib(many, .normal, config: bc)
 check(d.count == 15 && !d.contains(many[0].id), "budget sheds to 5 live, keeps playing tab")
 check(d.first == many[19].id, "LRU shed first")
-let young: [TabInfo] = (0..<10).map { i in tab("y\(i).example", idle: 60) }
-check(hib(young, .critical, config: bc).isEmpty, "budget never sheds tabs idle < floor")
+let young: [TabInfo] = (0..<10).map { i in tab("y\(i).example", idle: 20) }
+check(hib(young, .critical, config: bc).isEmpty, "budget never sheds tabs idle < the 30 s critical floor")
+let mid: [TabInfo] = (0..<10).map { i in tab("m\(i).example", idle: 3 * min) }
+check(hib(mid, .normal, config: bc).isEmpty, "normal pressure: 3-min-idle tabs are not shed by the budget (floor 5 min)")
+check(hib(mid, .warning, config: bc).count == 5, "warning pressure: floor drops to 2 min, budget sheds 3-min-idle tabs down to 5 live")
+let burst: [TabInfo] = (0..<10).map { i in tab("b\(i).example", idle: 45) }
+check(hib(burst, .critical, config: bc).count == 5, "critical pressure: even 45 s-idle tabs are shed to the budget")
+var wild = PolicyConfig(); wild.budgetFloor = .init(normal: -5, warning: .nan, critical: 1e12)
+let wv = wild.validated(); check(wv.budgetFloor.normal >= 10 && wv.budgetFloor.warning >= 10 && wv.budgetFloor.critical <= 3600, "validated(): budget floors clamped")
 
 // 8. Already-hibernated tabs ignored; empty input ok.
 var h = tab("example.com", idle: 86_400); h.liveness = .hibernated
@@ -150,6 +184,24 @@ check(SystemPressure.map(sysctlValue: 1) == .normal && SystemPressure.map(sysctl
 check(SystemPressure.map(event: [.warning]) == .warning && SystemPressure.map(event: [.critical]) == .critical && SystemPressure.map(event: [.normal]) == .normal, "dispatch pressure events map to levels")
 check(SystemPressure.current() != nil, "kernel pressure level is readable on this Mac")
 check(ProcessMemory.selfFootprint > 1_000_000 && ProcessMemory.footprint(pid: getpid()) != nil, "own memory footprint is readable")
+
+// 9c. Product preset `.relaxed` (tuned on the simulator): long-lived tabs, pressure still tightens
+let rx = PolicyConfig.relaxed
+check(hib([tab("a.example", idle: 80 * min)], config: rx).isEmpty && hib([tab("a.example", idle: 100 * min)], config: rx).count == 1, "relaxed @normal: live at 80 min idle, hibernates at 100 min (grace 90)")
+check(hib([tab("a.example", idle: 40 * min)], .warning, config: rx).isEmpty && hib([tab("a.example", idle: 50 * min)], .warning, config: rx).count == 1, "relaxed @warning: grace halves to 45 min")
+check(hib([tab("a.example", idle: 20 * min)], .critical, config: rx).isEmpty && hib([tab("a.example", idle: 25 * min)], .critical, config: rx).count == 1, "relaxed @critical: grace 22.5 min")
+check(hib([tab("a.example", idle: 5 * min)], .critical, config: rx).isEmpty, "relaxed @critical: never below the 10 min floor")
+check(rx.validated().minGrace == rx.minGrace && rx.validated().maxLive.normal == 100, "relaxed preset survives validation unchanged")
+
+// 9d. Live connections (WebSocket/EventSource): longer grace, but not an eternal pin
+let sock = tab("chat.example", idle: 200 * min) { $0.hasLiveConnection = true }
+check(hib([sock], config: rx).isEmpty, "relaxed: tab with a live connection survives 200 min idle (grace 270)")
+check(hib([tab("chat.example", idle: 300 * min) { $0.hasLiveConnection = true }], config: rx).count == 1, "live-connection tab still hibernates eventually (300 min)")
+check(hib([tab("chat.example", idle: 200 * min)], config: rx).count == 1, "same tab without a connection hibernates at 200 min")
+var manySock: [TabInfo] = (0..<10).map { i in tab("w\(i).example", idle: 20 * min) { $0.hasLiveConnection = true } }
+var sb = PolicyConfig.relaxed; sb.maxLive = .init(normal: 5, warning: 5, critical: 5)
+check(hib(manySock, config: sb).count == 5, "live-connection tabs do not exempt a tab from the live budget")
+manySock.removeAll()
 
 // 10. Window / space / tab model (docs/architecture/window-model.md)
 let prof1 = ProfileID(), prof2 = ProfileID()
@@ -369,5 +421,43 @@ do {
   } else { check(true, "zero-length db with non-empty WAL refused to open (safe)") }
 }
 
+// 15. Usage recorder: opt-in, hashed, private, bounded
+do {
+  let up = tmpDB() + ".usage"
+  let off = try UsageRecorder(path: up, enabled: false)
+  off.recordActivation(tab: TabID(), host: "secret.example")
+  check(!FileManager.default.fileExists(atPath: up), "recorder disabled by default: writes nothing")
+  let on = try UsageRecorder(path: up, enabled: true)
+  let tA = TabID(), tB = TabID()
+  for i in 0..<5 { on.recordActivation(tab: i % 2 == 0 ? tA : tB, host: "bank.example", at: Date(timeIntervalSince1970: 1_000_000 + Double(i) * 60)) }
+  let txt = try String(contentsOfFile: up, encoding: .utf8)
+  check(!txt.contains("bank.example") && !txt.contains(tA.raw.uuidString), "recorder file contains no plaintext host or tab id")
+  let ev = UsageRecorder.parse(txt)
+  check(ev.count == 5 && ev[0].host == ev[1].host && ev[0].tab == ev[2].tab && ev[0].tab != ev[1].tab, "recorder events round-trip with stable hashes")
+  check((((try FileManager.default.attributesOfItem(atPath: up))[.posixPermissions] as? Int) ?? 0) & 0o077 == 0, "recorder file is user-only (0600)")
+  let again = try UsageRecorder(path: up, enabled: true)
+  again.recordActivation(tab: tA, host: "bank.example", at: Date(timeIntervalSince1970: 2_000_000))
+  let ev2 = UsageRecorder.parse(try String(contentsOfFile: up, encoding: .utf8))
+  check(ev2.count == 6 && ev2.last?.host == ev2[0].host, "salt persists across reopen (hashes stay comparable)")
+  let rp = tmpDB() + ".usage2"
+  let small = try UsageRecorder(path: rp, enabled: true, maxBytes: 600)
+  for i in 0..<200 { small.recordActivation(tab: tA, host: "h\(i % 7)", at: Date(timeIntervalSince1970: 1000 + Double(i))) }
+  let rtxt = try String(contentsOfFile: rp, encoding: .utf8); let rsize = rtxt.utf8.count
+  let revs = UsageRecorder.parse(rtxt)
+  check(rsize <= 600 + 60 && rtxt.hasPrefix("#v1 salt="), "recorder rotation keeps the file bounded (\(rsize) bytes) and keeps the header")
+  check(revs.last?.time == Date(timeIntervalSince1970: 1199) && revs.count > 5 && revs.count < 200, "rotation keeps the NEWEST records (\(revs.count) kept)")
+  check(UsageRecorder.parse("garbage\n1,2\nx,y,z\n5,aa,bb\n").count == 1, "parser skips malformed lines")
+  // review fixes: never overwrite an unreadable log; recreate with the SAME salt if the file vanished (moved, not deleted)
+  let badLog = tmpDB() + ".usage3"; try Data("not a header\n1,2,3\n".utf8).write(to: URL(fileURLWithPath: badLog))
+  do { _ = try UsageRecorder(path: badLog, enabled: true); check(false, "unreadable usage log refused") } catch { check(true, "unreadable usage log is refused, not overwritten") }
+  check((try? String(contentsOfFile: badLog, encoding: .utf8))?.contains("not a header") == true, "refused log content untouched")
+  let mvPath = tmpDB() + ".usage4"; let mv = try UsageRecorder(path: mvPath, enabled: true); let sameTab = TabID()
+  mv.recordActivation(tab: sameTab, host: "x.example", at: Date(timeIntervalSince1970: 10))
+  try FileManager.default.moveItem(atPath: mvPath, toPath: mvPath + ".moved")
+  mv.recordActivation(tab: sameTab, host: "x.example", at: Date(timeIntervalSince1970: 20))
+  let a1 = UsageRecorder.parse(try String(contentsOfFile: mvPath + ".moved", encoding: .utf8)), a2 = UsageRecorder.parse(try String(contentsOfFile: mvPath, encoding: .utf8))
+  check(a1.count == 1 && a2.count == 1 && a1[0].host == a2[0].host && a1[0].tab == a2[0].tab, "recording continues after the file vanished, with the same salt")
+  check((((try FileManager.default.attributesOfItem(atPath: mvPath))[.posixPermissions] as? Int) ?? 0) & 0o077 == 0, "recreated usage log is 0600")
+}
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -16,14 +16,27 @@ public struct UsageModel: Sendable, Codable {
   public var maxHosts = 1000
   public init() {}
   public var gaps: [String: Double] { entries.mapValues(\.gap) }
+  private var safeAlpha: Double { alpha.isFinite ? min(max(alpha, 0.01), 1) : 0.3 }
   public mutating func recordReactivation(host: String, idleSeconds: Double) {
     guard idleSeconds.isFinite else { return }          // NaN/inf must never poison a host forever
     let g = max(idleSeconds, 0); seq += 1
-    let prev = entries[host]?.gap
-    entries[host] = Entry(gap: prev.map { $0 + alpha * (g - $0) } ?? g, seq: seq)
+    let prev = entries[host].flatMap { $0.gap.isFinite ? $0.gap : nil }
+    entries[host] = Entry(gap: prev.map { $0 + safeAlpha * (g - $0) } ?? g, seq: seq)
+    evictIfNeeded()
+  }
+  /// Right-censored observation: the tab has NOT come back after `idleSeconds` (e.g. it was hibernated and is still unused).
+  /// Only ever raises the estimate, so learned gaps are not biased short by recording returning tabs alone.
+  public mutating func recordNoReturn(host: String, idleSeconds: Double) {
+    guard idleSeconds.isFinite, idleSeconds > 0 else { return }
+    seq += 1
+    if let e = entries[host], e.gap.isFinite { if idleSeconds > e.gap { entries[host] = Entry(gap: e.gap + safeAlpha * (idleSeconds - e.gap), seq: seq) } }
+    else { entries[host] = Entry(gap: idleSeconds, seq: seq) }
+    evictIfNeeded()
+  }
+  private mutating func evictIfNeeded() {
     if entries.count > maxHosts, let oldest = entries.min(by: { $0.value.seq < $1.value.seq })?.key { entries[oldest] = nil }
   }
-  public func expectedGap(host: String?) -> Double? { host.flatMap { entries[$0]?.gap } }
+  public func expectedGap(host: String?) -> Double? { host.flatMap { entries[$0] }.flatMap { $0.gap.isFinite ? $0.gap : nil } }
 }
 
 public struct PressureTable<T: Sendable & Codable>: Sendable, Codable {
@@ -38,12 +51,28 @@ public struct PolicyConfig: Sendable, Codable {
   public var defaultGrace: TimeInterval = 60 * 60    // idle time before a tab becomes eligible
   public var minGrace: TimeInterval = 15 * 60        // floor at normal/warning pressure
   public var criticalFloor: TimeInterval = 5 * 60    // floor even under critical memory pressure
-  public var gapFactor = 1.5                         // keep a tab live ~1.5x its usual idle gap
+  public var gapFactor = 3.0                         // a habitual tab is kept live ~3x its usual return gap (catches ~95% of returns)
+  public var coldGap: TimeInterval = 45 * 60         // break-even: tabs whose usual return gap exceeds this are "cold" and released early
+  public var maxGrace: TimeInterval = 4 * 3600       // upper bound for habitual tabs
+  public var taperWidth = 0.25                       // grace falls from habitual to minGrace across gap = coldGap ... coldGap*(1+taperWidth) (no cliff, little extra memory)
   public var pinnedMultiplier = 3.0
+  public var liveConnectionMultiplier = 3.0         // grace multiplier for tabs with an open WebSocket/EventSource
   public var audibleGrace: TimeInterval = 10 * 60   // keep a tab live this long after its audio stops
   public var pressureScale = PressureTable<Double>(normal: 1.0, warning: 0.5, critical: 0.25)
   public var maxLive = PressureTable<Int>(normal: 60, warning: 40, critical: 20)
+  /// A tab idle for less than this is never shed by the live-tab budget. Shrinks as memory pressure rises so a burst of
+  /// recently used tabs can still be relieved when the Mac is actually struggling.
+  public var budgetFloor = PressureTable<TimeInterval>(normal: 300, warning: 120, critical: 30)
   public init() {}
+
+  /// Product default for a heavy multi-tab user (tuned on the simulator, see docs/results/policy-sim-*): tabs stay alive long,
+  /// habitual tabs longer, pressure still shrinks everything. `init()` stays the neutral base used by unit tests.
+  public static var relaxed: PolicyConfig {
+    var c = PolicyConfig()
+    c.minGrace = 45 * 60; c.defaultGrace = 90 * 60; c.coldGap = 90 * 60; c.gapFactor = 3; c.maxGrace = 6 * 3600; c.criticalFloor = 10 * 60
+    c.maxLive = .init(normal: 100, warning: 70, critical: 40)
+    return c
+  }
 
   /// Clamp user input to sane values (a typo must never hibernate everything).
   public func validated() -> PolicyConfig {
@@ -52,13 +81,20 @@ public struct PolicyConfig: Sendable, Codable {
     c.minGrace = max(fin(c.minGrace, 15 * 60), 30)
     c.defaultGrace = max(fin(c.defaultGrace, 60 * 60), c.minGrace)
     c.criticalFloor = min(max(fin(c.criticalFloor, 5 * 60), 30), c.minGrace)
-    c.gapFactor = min(max(fin(c.gapFactor, 1.5), 1), 10)
+    c.gapFactor = min(max(fin(c.gapFactor, 3), 1), 10)
+    c.coldGap = min(max(fin(c.coldGap, 45 * 60), 60), 7 * 86_400)
+    c.taperWidth = min(max(fin(c.taperWidth, 0.25), 0.01), 2)
+    c.maxGrace = min(max(fin(c.maxGrace, 4 * 3600), c.defaultGrace), 7 * 86_400)
     c.pinnedMultiplier = min(max(fin(c.pinnedMultiplier, 3), 1), 20)
     c.audibleGrace = min(max(fin(c.audibleGrace, 600), 0), 24 * 3600)
+    c.liveConnectionMultiplier = min(max(fin(c.liveConnectionMultiplier, 3), 1), 20)
     func sc(_ x: Double) -> Double { min(max(fin(x, 1), 0.05), 1) }
     c.pressureScale = .init(normal: sc(c.pressureScale.normal), warning: sc(c.pressureScale.warning), critical: sc(c.pressureScale.critical))
     func ml(_ x: Int) -> Int { max(x, 1) }
     c.maxLive = .init(normal: ml(c.maxLive.normal), warning: ml(c.maxLive.warning), critical: ml(c.maxLive.critical))
+    func bf(_ x: Double, _ d: Double) -> Double { min(max(fin(x, d), 10), 3600) }
+    let bn = bf(c.budgetFloor.normal, 300), bw = min(bf(c.budgetFloor.warning, 120), bn)
+    c.budgetFloor = .init(normal: bn, warning: bw, critical: min(bf(c.budgetFloor.critical, 30), bw))   // tighter pressure never RAISES the floor
     return c
   }
 }
@@ -90,11 +126,20 @@ public enum HibernationPolicy {
 
   /// Idle time after which this tab becomes eligible, adapted to the user's habits and memory pressure.
   public static func grace(for t: TabInfo, pressure: PressureLevel, usage: UsageModel, config c: PolicyConfig) -> TimeInterval {
-    var g = c.defaultGrace
-    if let gap = usage.expectedGap(host: t.host) { g = min(max(gap * c.gapFactor, c.minGrace), c.defaultGrace) }
+    var g = c.defaultGrace                           // unknown habits: the default
+    if let gap = usage.expectedGap(host: t.host) {
+      // Break-even rule: returning within ~coldGap is cheaper than a restore -> keep habitual tabs generously;
+      // tabs you rarely come back to are released early.
+      let habitual = min(max(gap * c.gapFactor, c.minGrace), c.maxGrace)
+      if gap <= c.coldGap { g = habitual }
+      else if gap < c.coldGap * (1 + c.taperWidth) { g = habitual + (c.minGrace - habitual) * ((gap - c.coldGap) / (c.coldGap * c.taperWidth)) }   // narrow taper, no cliff
+      else { g = c.minGrace }
+    }
     if t.isPinned { g *= c.pinnedMultiplier }
+    if t.hasLiveConnection { g *= c.liveConnectionMultiplier }
+    g = min(g, 7 * 86_400)                           // multipliers can never make grace effectively infinite
     g *= c.pressureScale[pressure]
-    return max(g, pressure == .critical ? c.criticalFloor : c.minGrace)
+    return max(g, max(c.minGrace * c.pressureScale[pressure], c.criticalFloor))   // the floor shrinks with pressure, never below criticalFloor
   }
 
   /// `lastWake`: when the Mac last woke from sleep. Time asleep is not idle time, so a wake never mass-hibernates tabs.
@@ -129,8 +174,13 @@ public enum HibernationPolicy {
     // Hard budget on live tabs: shed further tabs, unpinned before pinned, longest idle first; never protected ones.
     let budget = c.maxLive[pressure]
     var remaining = live - chosen.count
-    for x in candidates.sorted(by: { $0.t.isPinned != $1.t.isPinned ? !$0.t.isPinned : $0.idle > $1.idle })
-    where remaining > budget && !chosen.contains(x.t.id) && x.idle >= c.criticalFloor {
+    // Over budget: unpinned first; then the tab whose own grace would expire SOONEST (cold tabs before habitual ones); ties by id.
+    func timeLeft(_ x: (t: TabInfo, idle: TimeInterval)) -> TimeInterval { grace(for: x.t, pressure: pressure, usage: usage, config: c) - x.idle }
+    for x in candidates.sorted(by: { l, r in
+      if l.t.isPinned != r.t.isPinned { return !l.t.isPinned }
+      let a = timeLeft(l), b = timeLeft(r)
+      return a != b ? a < b : l.t.id.raw.uuidString < r.t.id.raw.uuidString })
+    where remaining > budget && !chosen.contains(x.t.id) && x.idle >= c.budgetFloor[pressure] {
       chosen.insert(x.t.id); d.hibernate.append(x.t.id); remaining -= 1
     }
     d.overBudget = max(remaining - budget, 0)

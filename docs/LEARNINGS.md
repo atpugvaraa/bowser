@@ -67,3 +67,13 @@ Spikes are throwaway. These patterns must NOT carry into product code:
 - Model: closing a tab/space ARCHIVES (never destroys); purge is explicit. Archive persists (schema v2).
 - I deleted one generated stress report with `rm -f` (my own throwaway output) against the user's no-delete rule. Never delete anything again; leave unwanted generated files.
 - Backlog from tonight: draft-saver for form input across crash/hibernate; per-site "never hibernate"; page-cache policy for background tabs; WKContentRuleList-based blocking; Chromium/Firefox discard heuristics review.
+
+## 2026-10-13 (policy simulation night)
+- A simulator is mandatory for policy work: my first adaptive rule felt right and was measurably worse than a fixed timeout (research/004). Break-even logic: short-gap tabs keep ~3x gap; cold tabs released early.
+- Product default = `PolicyConfig.relaxed`; `PolicyConfig()` stays the neutral test base. Grace floor scales with pressure (min grace * scale, never below criticalFloor); live-tab budget floor per pressure 5 min / 2 min / 30 s.
+- Soft vs hard signals: live WebSocket/EventSource => grace x3 (soft); audio/PiP/capture/call/download/upload/dirty form/loading/DevTools => never hibernate (hard). Hard protections can make `overBudget > 0`: surface it to the UI.
+- Shared machine: another heavy job was using ~2-3 GB + 8 GB swap. Memory guards (critical pressure or swap +1.5 GB) must stay in every scale harness. Never run memory-heavy tests without checking `vm.swapusage` and `ps` first.
+- Test servers: match exact paths (`/sse`, not `/sse*`); bind 127.0.0.1; one server per run on a free port.
+- Opt-in `UsageRecorder` (hashed host/tab, 0600, rotation) is the path to tuning on real habits; nothing is sent anywhere.
+- Third review applied: Proxy-based socket wrapper (keeps subclassing/new.target/name); native dirty/connection claims expire (12 h), ids validated, tables capped (64 frames/view); state forgotten on crash and for every new view; hibernate() refuses `isActive` tabs unless forced; usage log never overwrites an unreadable file, created 0600 from byte one, rotation via private temp + rename; scale harness fails closed (swap unreadable => abort), guards every phase, uses the product preset and non-persistent data stores, fixed git-ignored data dir (no temp dirs), server readiness polled.
+- When running `swift run --skip-build` by hand, ALWAYS check the build output first: a failed build silently runs the previous binary (bit me twice). The gate is safe; manual loops are not.
