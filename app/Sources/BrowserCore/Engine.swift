@@ -20,4 +20,7 @@ public protocol EngineTab: AnyObject {
   func signals(timeout: TimeInterval) async -> TabSignals
   @discardableResult func hibernate(force: Bool) -> Bool
   @discardableResult func ensureLiveView() -> Bool   // make the tab live; true if it was hibernated
+  func captureState() -> Data?                       // opaque restore state (history + scroll) of the current page, live or hibernated
+  var currentURL: URL? { get }
+  var currentTitle: String? { get }
 }

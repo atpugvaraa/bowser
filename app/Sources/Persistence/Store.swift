@@ -2,7 +2,13 @@ import BrowserCore
 import Foundation
 import SQLite3
 
-public enum StoreError: Error, Equatable { case open(String), sql(String), corrupt(String), schemaTooNew(Int), mustLoadFirst }
+public enum StoreError: Error, Equatable {
+  case open(String), sql(String), corrupt(String), schemaTooNew(Int), mustLoadFirst
+  case busy(String)             // locked by another connection/process: TRANSIENT, never a reason to touch the files
+  case notADatabase(String)     // SQLITE_NOTADB / SQLITE_CORRUPT: the file itself is damaged
+  /// Only these justify recovery from backup / quarantine. Everything else (busy, newer schema, I/O, disk full) must be surfaced untouched.
+  public var isCorruption: Bool { switch self { case .corrupt, .notADatabase: return true; default: return false } }
+}
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -31,6 +37,9 @@ public final class Store: @unchecked Sendable {
     db = h
     sqlite3_busy_timeout(h, 3000)
     do {
+      // Read-only probe FIRST: a database from a newer app version must not be modified at all (not even its journal mode).
+      let v0 = try userVersionLocked()
+      if v0 > Store.schemaVersion { throw StoreError.schemaTooNew(v0) }
       try exec("PRAGMA journal_mode=WAL"); try exec("PRAGMA synchronous=FULL"); try exec("PRAGMA foreign_keys=ON"); try exec("PRAGMA secure_delete=ON")
       let fresh = try migrate()
       _canSave = fresh && !hadWAL
@@ -187,6 +196,14 @@ public final class Store: @unchecked Sendable {
     return dest
   }
 
+  /// `PRAGMA quick_check`: true only if SQLite reports "ok".
+  public func isHealthy() -> Bool {
+    lock.lock(); defer { lock.unlock() }
+    var ok = false
+    try? queryLocked("PRAGMA quick_check(1)") { st in ok = (sqlite3_column_text(st, 0).map { String(cString: $0) } ?? "") == "ok" }
+    return ok
+  }
+
   /// Consistent online copy using SQLite's backup API; overwrites `dest` in place (so a fixed ring of slots needs no deletion).
   public func backup(toPath dest: String) throws {
     lock.lock(); defer { lock.unlock() }
@@ -210,6 +227,9 @@ public final class Store: @unchecked Sendable {
   }
   public func tabState(_ tab: TabID) throws -> Data? {
     lock.lock(); defer { lock.unlock() }
+    #if DEBUG
+    if _failReads > 0 { _failReads -= 1; throw StoreError.sql("injected read failure") }
+    #endif
     var out: Data?
     try queryLocked("SELECT state FROM tab_state WHERE tab=?", [.text(tab.raw.uuidString)]) { st in
       if let p = sqlite3_column_blob(st, 0) { out = Data(bytes: p, count: Int(sqlite3_column_bytes(st, 0))) } else { out = Data() }
@@ -238,6 +258,10 @@ public final class Store: @unchecked Sendable {
   }
 
   #if DEBUG
+  public var _failWrites = 0       // test hook: make the next N write transactions fail
+  public var _failReads = 0        // test hook: make the next N tabState reads fail
+  #endif
+  #if DEBUG
   /// Test hook: begin a write transaction and abandon the connection without commit or checkpoint.
   public func simulateAbandonedTransaction() throws {
     lock.lock(); defer { lock.unlock() }
@@ -253,21 +277,30 @@ public final class Store: @unchecked Sendable {
     return String(decoding: UnsafeBufferPointer(start: p, count: Int(sqlite3_column_bytes(st, i))), as: UTF8.self)
   }
   private func msg() -> String { db.map { String(cString: sqlite3_errmsg($0)) } ?? "closed" }
+  private func fail(_ rc: Int32) -> StoreError {
+    let m = msg()
+    switch rc & 0xff { case SQLITE_BUSY, SQLITE_LOCKED: return .busy(m); case SQLITE_NOTADB, SQLITE_CORRUPT: return .notADatabase(m); default: return .sql(m) }
+  }
 
   private func transaction(_ body: () throws -> Void) throws {
     lock.lock(); defer { lock.unlock() }
+    #if DEBUG
+    if _failWrites > 0 { _failWrites -= 1; throw StoreError.sql("injected write failure") }
+    #endif
     try execLocked("BEGIN IMMEDIATE")
     do { try body(); try execLocked("COMMIT") } catch { try? execLocked("ROLLBACK"); throw error }
   }
   private func exec(_ sql: String) throws { lock.lock(); defer { lock.unlock() }; try execLocked(sql) }
   private func execLocked(_ sql: String) throws {
-    guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw StoreError.sql(msg()) }
+    let rc = sqlite3_exec(db, sql, nil, nil, nil)
+    guard rc == SQLITE_OK else { throw fail(rc) }
   }
   private func run(_ sql: String, _ binds: [Bind]) throws { try prepared(sql, binds) { _ in } }
   private func queryLocked(_ sql: String, _ binds: [Bind] = [], _ row: (OpaquePointer?) -> Void) throws { try prepared(sql, binds, row) }
   private func prepared(_ sql: String, _ binds: [Bind], _ row: (OpaquePointer?) -> Void) throws {
     var st: OpaquePointer?
-    guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { throw StoreError.sql(msg()) }
+    let prc = sqlite3_prepare_v2(db, sql, -1, &st, nil)
+    guard prc == SQLITE_OK else { throw fail(prc) }
     defer { sqlite3_finalize(st) }
     for (i, b) in binds.enumerated() {
       let n = Int32(i + 1)
@@ -283,7 +316,7 @@ public final class Store: @unchecked Sendable {
     }
     while true {
       let rc = sqlite3_step(st)
-      if rc == SQLITE_ROW { row(st) } else if rc == SQLITE_DONE { break } else { throw StoreError.sql(msg()) }
+      if rc == SQLITE_ROW { row(st) } else if rc == SQLITE_DONE { break } else { throw fail(rc) }
     }
   }
 }

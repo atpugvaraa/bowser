@@ -1,6 +1,9 @@
 import AppKit
 import BrowserCore
+import ContentBlocking
+import EngineCore
 import EngineWebKit
+import Persistence
 import Foundation
 import Lifecycle
 import WebKit
@@ -220,6 +223,76 @@ Task { @MainActor in
     mgr.activate(tabs[7].id); _ = await waitUntil(30) { tabs[7].webView?.isLoading == false && tabs[7].webView?.url != nil }
     if tabs[7].isLive && tabs[7].webView?.url != nil { log("- manager.activate resumed a hibernated real tab") } else { fail("manager.activate did not resume the tab") }
   }
+
+  // 9. FULL ENGINE on real web views: BrowserEngine + WebKitTabFactory + SessionManager, incl. an app restart from the database
+  do {
+    let dbp = "\(pagesDir!)/engine-\(UUID().uuidString).sqlite"
+    let (sess, st0, _) = try SessionManager.start(path: dbp, debounce: 0.1)
+    let fac = WebKitTabFactory(persistent: false)
+    let eng = BrowserEngine(session: sess, state: st0, factory: fac)
+    let prof = ProfileID(); let sp = eng.addSpace(name: "Eng", profile: prof)
+    let win = eng.openWindow(space: sp)!
+    let e0 = eng.newTab(in: sp, url: "\(baseURL!)/t0.html", window: win)!
+    let e1 = eng.newTab(in: sp, url: "\(baseURL!)/t1.html")!
+    // give e0 a two-entry history in a real web view
+    let wk0 = eng.tab(e0) as! WebKitTab
+    _ = await waitUntil(30) { wk0.webView?.isLoading == false && wk0.webView?.url != nil }
+    wk0.webView!.load(URLRequest(url: URL(string: "\(baseURL!)/t2.html")!)); try? await Task.sleep(nanoseconds: 800_000_000)
+    _ = await waitUntil(30) { wk0.webView?.isLoading == false && wk0.webView?.url?.lastPathComponent == "t2.html" }
+    log("- engine: live tabs \(eng.liveCount) of \(eng.state.tabs.count) (only the window-selected one is live)")
+    if eng.liveCount != 1 { fail("engine launch laziness: \(eng.liveCount) live, expected 1") }
+    // close -> archive -> restore: history must come back in a NEW web view
+    eng.closeTab(e0)
+    if eng.tab(e0) != nil || !eng.state.archive.contains(where: { $0.id == e0 }) { fail("closed tab not archived/torn down") }
+    _ = eng.restoreTab(e0)
+    let wkR = eng.tab(e0) as! WebKitTab; wkR.ensureLive()
+    _ = await waitUntil(30) { wkR.webView?.isLoading == false && wkR.webView?.url != nil }
+    if wkR.webView?.backForwardList.backList.count == 1 && wkR.restoredFromState { log("- engine: close -> archive -> restore kept the tab's history (back list = 1)") } else { fail("restore lost history (back=\(wkR.webView?.backForwardList.backList.count ?? -1), restoredFromState=\(wkR.restoredFromState))") }
+    _ = e1
+    // app restart: shut down, reopen the database in a fresh engine with a fresh factory
+    try eng.shutdown()
+    let (sess2, st2, rec2) = try SessionManager.start(path: dbp)
+    let eng2 = BrowserEngine(session: sess2, state: st2, factory: WebKitTabFactory(persistent: false))
+    let live2 = eng2.state.windows.values.compactMap(\.selected)
+    log("- engine restart: recovery=\(rec2), \(eng2.state.tabs.count) tabs, live \(eng2.liveCount) (lazy)")
+    if eng2.liveCount != live2.count { fail("restart not lazy: \(eng2.liveCount) live vs \(live2.count) selected") }
+    // the window moved to the neighbouring tab when e0 was closed; bring e0 back into view like a user would
+    let win2 = eng2.state.windows.keys.first!
+    _ = eng2.select(tab: e0, in: win2)
+    if let wk = eng2.tab(e0) as? WebKitTab {
+      _ = await waitUntil(30) { wk.webView?.isLoading == false && wk.webView?.url != nil }
+      if wk.webView?.backForwardList.backList.count == 1 && wk.restoredFromState { log("- engine restart: history survived an APP RESTART from the database (back list = 1)") } else { fail("history lost across app restart (back=\(wk.webView?.backForwardList.backList.count ?? -1))") }
+    } else { fail("tab e0 missing after restart") }
+  } catch { fail("full-engine integration threw: \(error)") }
+
+  // 10. Native content blocking on real pages (local only): block, allowlist exception, merge validation
+  do {
+    try? FileManager.default.createDirectory(atPath: "\(pagesDir!)/ads", withIntermediateDirectories: true)
+    try? "window.adLoaded = (window.adLoaded||0) + 1;".write(toFile: "\(pagesDir!)/ads/x.js", atomically: true, encoding: .utf8)
+    try? "<html><head><title>adpage</title></head><body><script src='/ads/x.js'></script></body></html>".write(toFile: "\(pagesDir!)/adpage.html", atomically: true, encoding: .utf8)
+    let cb = try ContentBlocker(storeURL: URL(fileURLWithPath: "\(pagesDir!)/cb-store-\(UUID().uuidString)"))
+    let rules = #"[{"trigger":{"url-filter":"/ads/"},"action":{"type":"block"}}]"#
+    @MainActor func adLoaded(_ cfgx: WKWebViewConfiguration, host: String) async -> Bool {
+      let w = WKWebView(frame: .init(x: 0, y: 0, width: 300, height: 200), configuration: cfgx)
+      let win = NSWindow(contentRect: w.frame, styleMask: [.titled], backing: .buffered, defer: false); win.contentView = w; win.orderBack(nil)
+      w.load(URLRequest(url: URL(string: "http://\(host):\(URL(string: baseURL!)!.port!)/adpage.html")!))
+      _ = await waitUntil(20) { w.isLoading == false && w.url != nil }; try? await Task.sleep(nanoseconds: 600_000_000)
+      return ((try? await w.evaluateJavaScript("window.adLoaded === 1")) as? Bool) ?? false
+    }
+    let plain = WKWebViewConfiguration(); plain.websiteDataStore = .nonPersistent()
+    let blocked = WKWebViewConfiguration(); blocked.websiteDataStore = .nonPersistent()
+    let n = try await cb.install(id: "ads", blockRules: rules, on: blocked)
+    let allow = WKWebViewConfiguration(); allow.websiteDataStore = .nonPersistent()
+    _ = try await cb.install(id: "ads", blockRules: rules, allowlistDomains: ["127.0.0.1"], on: allow)
+    let a = await adLoaded(plain, host: "127.0.0.1"), b = await adLoaded(blocked, host: "127.0.0.1"), c = await adLoaded(allow, host: "127.0.0.1")
+    log("- content blocking (\(n) rule): without blocker ad loaded=\(a); with blocker loaded=\(b); with allowlist for the site loaded=\(c)")
+    if !a { fail("test page's ad script did not load without a blocker (test invalid)") }
+    if b { fail("content blocker did not block the ad request") }
+    if !c { fail("allowlist exception did not re-enable the site") }
+    do { _ = try ContentBlocker.merge(blockRules: "not json", allowlistDomains: []); fail("invalid rule JSON accepted") } catch { log("- content blocking rejects invalid rule JSON") }
+    let merged = try ContentBlocker.merge(blockRules: rules, allowlistDomains: ["ok.example", "bad;domain", "*.evil", ""])
+    if merged.contains("bad;domain") || merged.contains("*.evil") || !merged.contains("*ok.example") { fail("allowlist input not sanitised: \(merged)") } else { log("- allowlist input is sanitised (no wildcard/metacharacter injection)") }
+  } catch { fail("content blocking integration threw: \(error)") }
 
   log("\n**Result:** \(failures.isEmpty ? "PASS" : "FAIL (\(failures.count))")")
   if let p = outPath { try? report.joined(separator: "\n").write(toFile: p, atomically: true, encoding: .utf8) }

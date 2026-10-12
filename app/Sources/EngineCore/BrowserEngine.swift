@@ -1,0 +1,172 @@
+import BrowserCore
+import Foundation
+import Lifecycle
+import Persistence
+
+/// Creates engine tabs (WebKit in the app, fakes in tests). Tabs must start HIBERNATED (no view/process) until ensureLiveView().
+@MainActor
+public protocol TabFactory {
+  func makeTab(id: TabID, url: URL?, profile: ProfileID, restoredState: Data?) -> any EngineTab
+}
+
+/// The core engine facade a UI talks to. Owns the model, the session store, the lifecycle manager and the engine tabs, and keeps
+/// them consistent: every mutation ends in `reconcile()` (engine tabs mirror the model, incl. profile) and a debounced save.
+/// Rules: closing never destroys (archive + saved state); closing a window sleeps its tabs (unless media/capture/etc.);
+/// launch is lazy (only visible tabs are live); a tab always runs under the data store of its space's profile.
+@MainActor
+public final class BrowserEngine {
+  public private(set) var state: BrowserState
+  public let lifecycle: LifecycleManager
+  public var onChange: (() -> Void)?
+  private let session: SessionManager
+  private let factory: TabFactory
+  private var tabs: [TabID: any EngineTab] = [:]
+  private var tabProfile: [TabID: ProfileID] = [:]
+  private var unreadBlobs: Set<TabID> = []        // restore state could not be READ: never overwrite it from a fresh, shorter history
+  private var maintenanceTimer: Timer?
+  private var lastStateSave: Date = .distantPast
+  private var lastPrune: Date = .distantPast
+
+  public init(session: SessionManager, state: BrowserState, factory: TabFactory, lifecycle: LifecycleManager = LifecycleManager()) {
+    self.session = session; self.state = state; self.factory = factory; self.lifecycle = lifecycle
+    reconcile()
+    syncVisible()                                  // lazy launch: only tabs selected in some window come alive
+  }
+
+  public func tab(_ id: TabID) -> (any EngineTab)? { tabs[id] }
+  public var liveCount: Int { lifecycle.liveCount }
+
+  // MARK: spaces / windows
+  @discardableResult public func addSpace(name: String, profile: ProfileID) -> SpaceID { let s = state.addSpace(name: name, profile: profile); commit(); return s }
+  @discardableResult public func deleteSpace(_ id: SpaceID) -> Bool { let r = state.deleteSpace(id) != nil; commit(); return r }
+  @discardableResult public func openWindow(space: SpaceID) -> WindowID? {
+    let w = state.openWindow(space: space); commit()
+    if let w, let t = state.windows[w]?.selected { lifecycle.activate(t) }
+    return w
+  }
+  /// Closing a window never closes tabs (they are views onto spaces); its tab sleeps unless a hard protection applies.
+  public func closeWindow(_ id: WindowID) {
+    let shown = state.windows[id]?.selected
+    state.closeWindow(id); commit()
+    if let shown, state.windowShowing(shown) == nil {
+      lifecycle.deactivate(shown)
+      Task { @MainActor in
+        if let t = tabs[shown] { persistState(shown, t) }
+        _ = await lifecycle.sleepNow(shown)
+      }
+    }
+  }
+  public func switchSpace(window: WindowID, to space: SpaceID) {
+    state.switchSpace(window: window, to: space); commit()
+    if let t = state.windows[window]?.selected { lifecycle.activate(t) }
+  }
+
+  // MARK: tabs
+  @discardableResult public func newTab(in space: SpaceID, url: String, title: String = "", window: WindowID? = nil) -> TabID? {
+    guard let id = state.addTab(in: space, url: url, title: title) else { return nil }
+    commit()
+    if let w = window { _ = select(tab: id, in: w) }
+    return id
+  }
+  /// Closing sleeps: the tab goes to the archive with its restore state saved; its view/process is torn down (media stops).
+  public func closeTab(_ id: TabID) {
+    if let t = tabs[id] { syncOne(id, t); persistState(id, t) }
+    state.closeTab(id)
+    commit()                                       // reconcile() sleeps (force) and unregisters the engine tab; visible neighbours come alive
+  }
+  @discardableResult public func restoreTab(_ id: TabID, confirmedCrossProfile: Bool = false) -> RestoreResult {
+    let r = state.restoreTab(id, confirmedCrossProfile: confirmedCrossProfile)
+    if case .restored = r { commit() }
+    return r
+  }
+  /// The only way a tab is really removed (and its saved history with it).
+  public func purge(_ id: TabID) { state.purge(id); session.persistTabState(id, nil); commit() }
+  /// Drop archive entries older than `cutoff` and their saved history.
+  public func purgeArchive(olderThan cutoff: Date) { var kept: [TabID] = []; state.purgeArchive(olderThan: cutoff, keepingBlobsFor: &kept); commit(); pruneBlobs() }
+  /// Moving across profiles needs `confirmedCrossProfile`; once moved, the tab is rebuilt under the destination profile's data store.
+  @discardableResult public func moveTab(_ id: TabID, to space: SpaceID, confirmedCrossProfile: Bool = false) -> MoveResult {
+    let r = state.moveTab(id, to: space, confirmedCrossProfile: confirmedCrossProfile); commit(); return r
+  }
+  @discardableResult public func detachTab(_ id: TabID) -> WindowID? {
+    let w = state.detachTab(id); commit(); if w != nil { lifecycle.activate(id) }; return w
+  }
+
+  /// Select a tab in a window. If another window already shows it, the UI should focus that window (returned).
+  @discardableResult public func select(tab: TabID, in window: WindowID) -> SelectResult {
+    let r = state.select(tab: tab, in: window)
+    if r == .selected { commit(); lifecycle.activate(tab) }
+    return r
+  }
+
+  // MARK: lifecycle
+  /// Call from a timer / on memory-pressure change.
+  public func maintenance() async -> PassReport {
+    let r = await lifecycle.pass()
+    for id in r.hibernated { if let t = tabs[id] { persistState(id, t) } }
+    let now = Date()
+    if now.timeIntervalSince(lastStateSave) > 300 {                       // refresh saved history of live tabs (crash insurance)
+      lastStateSave = now; syncFromTabs()
+      for (id, t) in tabs where t.isLive { persistState(id, t) }
+      session.scheduleSave(state)
+    }
+    session.rotateBackupIfDue()
+    if now.timeIntervalSince(lastPrune) > 3600 { lastPrune = now; pruneBlobs() }
+    return r
+  }
+  public func startMaintenance(every seconds: TimeInterval = 30) {
+    maintenanceTimer?.invalidate()
+    maintenanceTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: true) { [weak self] _ in Task { @MainActor in _ = await self?.maintenance() } }
+  }
+  public func stopMaintenance() { maintenanceTimer?.invalidate(); maintenanceTimer = nil }
+  public func noteWake() { lifecycle.noteWake() }
+  /// Quit: write everything now. Throws if the model cannot be written (the caller must not claim a clean shutdown).
+  public func shutdown() throws {
+    syncFromTabs()
+    for (id, t) in tabs { persistState(id, t) }
+    try session.save(state)
+    _ = try? session.rotateBackup()
+  }
+
+  // MARK: internals
+  private func commit() { reconcile(); syncVisible(); syncFromTabs(); session.scheduleSave(state); onChange?() }
+  private func persistState(_ id: TabID, _ t: any EngineTab) {
+    if unreadBlobs.contains(id) { return }          // an unreadable saved history is never replaced by a newer, shorter one
+    if let d = t.captureState() { session.persistTabState(id, d) }
+  }
+  private func syncVisible() {
+    let vis = state.visibleTabs
+    for t in vis { tabs[t]?.ensureLiveView() }      // anything a window shows must be live (also after close/deleteSpace picks a neighbour)
+    lifecycle.setVisible(vis)
+  }
+  private func syncOne(_ id: TabID, _ t: any EngineTab) {
+    state.updateTab(id, url: t.currentURL?.absoluteString, title: t.currentTitle, lastActive: lifecycle.lastActiveDate(of: id))
+  }
+  /// Copy live URL / title / last-active into the model so saves and the archive hold what the user actually saw.
+  private func syncFromTabs() { for (id, t) in tabs { syncOne(id, t) } }
+  private func pruneBlobs() {
+    session.pruneTabStates(keeping: Set(state.tabs.keys).union(state.archive.map(\.id)))
+  }
+
+  /// Engine tabs mirror the model: create for new/restored tabs, REBUILD when the tab's profile changed, sleep + drop for tabs that left it.
+  private func reconcile() {
+    for (id, rec) in state.tabs {
+      let profile = state.space(rec.space)?.profile ?? state.spaces.first?.profile ?? ProfileID()
+      if let existing = tabs[id] {
+        guard tabProfile[id] != profile else { continue }
+        // profile changed (moveTab across profiles): the live view still holds the OLD data store -> rebuild under the new one
+        let wasLive = existing.isLive
+        syncOne(id, existing); persistState(id, existing); existing.hibernate(force: true); lifecycle.unregister(id); tabs[id] = nil
+        _ = wasLive
+      }
+      let blob = session.tabStateResult(id)
+      if blob.failed { unreadBlobs.insert(id) } else { unreadBlobs.remove(id) }
+      let t = factory.makeTab(id: id, url: URL(string: rec.url), profile: profile, restoredState: blob.data)
+      tabs[id] = t; tabProfile[id] = profile
+      lifecycle.register(t, host: URL(string: rec.url)?.host, lastActive: rec.lastActive)
+    }
+    for id in Array(tabs.keys) where state.tabs[id] == nil {
+      if let t = tabs[id] { persistState(id, t); t.hibernate(force: true) }
+      lifecycle.unregister(id); tabs[id] = nil; tabProfile[id] = nil
+    }
+  }
+}

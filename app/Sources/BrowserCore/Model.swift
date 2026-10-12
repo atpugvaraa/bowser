@@ -91,6 +91,20 @@ public struct BrowserState: Sendable, Equatable {
     return t.id
   }
 
+  /// Write live facts back into the record (current URL/title after navigation, real last-active time) so saves and the archive
+  /// reflect what the user actually saw, not the creation URL.
+  public mutating func updateTab(_ id: TabID, url: String? = nil, title: String? = nil, lastActive: Date? = nil) {
+    guard var t = tabs[id] else { return }
+    if let u = url, !u.isEmpty { t.url = u }
+    if let ti = title { t.title = ti }
+    if let la = lastActive { t.lastActive = la }
+    tabs[id] = t
+  }
+  public mutating func purgeArchive(olderThan cutoff: Date, keepingBlobsFor: inout [TabID]) {
+    keepingBlobsFor = archive.filter { $0.closedAt >= cutoff }.map(\.id)
+    archive.removeAll { $0.closedAt < cutoff }
+  }
+
   /// Sleeps the tab into the archive (never destroys). Use `restoreTab` to bring it back, `purge` to really delete.
   public mutating func closeTab(_ id: TabID, now: Date = Date()) {
     guard let t = tabs[id], let si = spaceIndex(t.space) else { return }

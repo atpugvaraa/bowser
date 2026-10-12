@@ -2,6 +2,7 @@ import BrowserCore
 import Foundation
 import Lifecycle
 import Persistence
+import EngineCore
 import Resources
 import SQLite3
 
@@ -469,6 +470,9 @@ do {
   }
   @discardableResult func hibernate(force: Bool) -> Bool { if isActive && !force { return false }; if !live { return false }; live = false; hibernations += 1; return true }
   @discardableResult func ensureLiveView() -> Bool { let was = !live; live = true; if was { wasResumed += 1 }; return was }
+  func captureState() -> Data? { nil }
+  var currentURL: URL? { nil }
+  var currentTitle: String? { nil }
 }
 do {
   @MainActor func world(pressure: @escaping () -> PressureLevel = { .normal }, config: PolicyConfig = .relaxed) -> (LifecycleManager, () -> Date, (TimeInterval) -> Void) {
@@ -564,7 +568,143 @@ do {
   mgr4.scheduleSave(fresh(9)); try mgr4.flush(); check((try? Store(path: dp).load().tabs.count) == 9, "session: flush() writes the pending state immediately")
   // tab state blobs through the manager
   let tid = TabID(); let blob = Data("history+scroll".utf8)
-  try mgr4.persistTabState(tid, blob); check(mgr4.tabState(tid) == blob, "session: tab restore state persists")
+  mgr4.persistTabState(tid, blob); check(mgr4.tabState(tid) == blob, "session: tab restore state persists")
+}
+// 18. BrowserEngine facade over fake tabs
+@MainActor final class FTab: EngineTab {
+  let id: TabID; var live = false; var isActive = false; var sig = TabSignals(); var restored: Data?; var state: Data?; var hibernations = 0; var url: URL?
+  init(id: TabID, url: URL?, restored: Data?) { self.id = id; self.url = url; self.restored = restored; self.state = restored }
+  var isLive: Bool { live }
+  func signals(timeout: TimeInterval) async -> TabSignals { sig }
+  @discardableResult func hibernate(force: Bool) -> Bool { if !live { return false }; if isActive && !force { return false }; live = false; hibernations += 1; return true }
+  @discardableResult func ensureLiveView() -> Bool { let was = !live; live = true; return was }
+  func captureState() -> Data? { state }
+  var currentURL: URL? { url }
+  var title: String?
+  var currentTitle: String? { title }
+}
+@MainActor final class FFactory: TabFactory {
+  var made: [TabID: FTab] = [:]; var creations = 0; var profiles: [TabID: [ProfileID]] = [:]
+  func makeTab(id: TabID, url: URL?, profile: ProfileID, restoredState: Data?) -> any EngineTab { creations += 1; let t = FTab(id: id, url: url, restored: restoredState); made[id] = t; profiles[id, default: []].append(profile); return t }
+}
+do {
+  let ep = tmpDB(); let (sess, st0, _) = try SessionManager.start(path: ep, debounce: 0.05)
+  let ff = FFactory(); var clockNow = Date(timeIntervalSince1970: 9_000_000)
+  let life = LifecycleManager(config: .relaxed, clock: { clockNow })
+  let eng = BrowserEngine(session: sess, state: st0, factory: ff, lifecycle: life)
+  let pf = ProfileID(); let spA = eng.addSpace(name: "Work", profile: pf), spB = eng.addSpace(name: "Home", profile: pf)
+  let w1 = eng.openWindow(space: spA)!
+  let tA = eng.newTab(in: spA, url: "https://a.example/1", window: w1)!, tB = eng.newTab(in: spA, url: "https://b.example/2")!, tC = eng.newTab(in: spB, url: "https://c.example/3")!
+  check(ff.creations == 3 && ff.made[tA]!.live && !ff.made[tB]!.live && !ff.made[tC]!.live, "engine: new tabs are hibernated; the one selected in a window is live")
+  check(eng.state.validate().isEmpty && eng.liveCount == 1, "engine: model valid, 1 live tab")
+
+  // closing a tab archives it, saves its restore state, tears down the engine tab
+  ff.made[tB]!.state = Data("history-of-B".utf8); ff.made[tB]!.live = true
+  eng.closeTab(tB)
+  check(eng.state.tabs[tB] == nil && eng.state.archive.contains { $0.id == tB } && eng.tab(tB) == nil && !ff.made[tB]!.live, "engine: close sleeps the tab into the archive and tears down its view")
+  check(sess.tabState(tB) == Data("history-of-B".utf8), "engine: closing saved the tab's restore state")
+  let r = eng.restoreTab(tB)
+  if case .restored(let nid) = r { check(nid == tB && eng.tab(tB) != nil && ff.made[tB]!.restored == Data("history-of-B".utf8), "engine: restoring recreates the tab WITH its saved history") } else { check(false, "engine: restore (got \(r))") }
+
+  // closing a window never closes tabs; sleeps them unless protected
+  let w2 = eng.openWindow(space: spB)!; _ = eng.select(tab: tC, in: w2)
+  ff.made[tC]!.sig.isPlayingMedia = true
+  eng.closeWindow(w2); try await Task.sleep(nanoseconds: 120_000_000)
+  check(eng.state.tabs[tC] != nil && ff.made[tC]!.live, "engine: closing a window keeps its tab, and a tab PLAYING MEDIA keeps playing")
+  ff.made[tC]!.sig.isPlayingMedia = false
+  let w3 = eng.openWindow(space: spB)!; _ = eng.select(tab: tC, in: w3); eng.closeWindow(w3); try await Task.sleep(nanoseconds: 120_000_000)
+  check(!ff.made[tC]!.live && eng.state.tabs[tC] != nil, "engine: closing a window sleeps its idle tab immediately (tab kept)")
+
+  // two windows: both visible tabs protected from the lifecycle pass; detach creates a second visible tab
+  _ = eng.select(tab: tB, in: w1)
+  let w4 = eng.detachTab(tA)!
+  check(eng.state.visibleTabs == [tA, tB] || eng.state.visibleTabs.contains(tA), "engine: detach opens a second window showing the tab")
+  clockNow = clockNow.addingTimeInterval(10 * 3600)
+  let rep = await eng.maintenance()
+  check(ff.made[tA]!.live && !rep.hibernated.contains(tA) && !rep.hibernated.contains(eng.state.windows[w1]?.selected ?? tA), "engine: tabs visible in ANY window survive a maintenance pass")
+  check(rep.hibernated.contains(tC) == false, "engine: already-sleeping tab is not re-hibernated")
+  _ = w4
+
+  // deleting a space archives its tabs and tears down their engine tabs
+  let before = eng.state.tabs.count + eng.state.archive.count
+  _ = eng.deleteSpace(spB)
+  check(eng.state.tabs.count + eng.state.archive.count == before && eng.tab(tC) == nil && !ff.made[tC]!.live, "engine: deleting a space archives its tabs, nothing lost, engine tab torn down")
+
+  // restart: persisted session comes back lazily
+  try eng.shutdown()
+  let (sess2, st2, rec2) = try SessionManager.start(path: ep)
+  let ff2 = FFactory(); let eng2 = BrowserEngine(session: sess2, state: st2, factory: ff2, lifecycle: LifecycleManager(config: .relaxed))
+  check(rec2 == .clean && st2 == eng.state, "engine: session round-trips exactly across a restart")
+  let selected = Set(st2.windows.values.compactMap(\.selected))
+  check(ff2.made.count == st2.tabs.count && ff2.made.values.filter { $0.live }.count == selected.count && ff2.made.values.filter { $0.live }.allSatisfy { selected.contains($0.id) }, "engine: restart is LAZY: \(ff2.made.count) tabs created, only the \(selected.count) window-selected ones live")
+  _ = eng2
+}
+// 19. Review fixes (4th review): transient != corruption, blobs survive backup restore, retries, profile move, syncing
+do {
+  func fresh2(_ n: Int) -> BrowserState { var s = BrowserState(); let sp = s.addSpace(name: "R\(n)", profile: ProfileID()); for i in 0..<n { s.addTab(in: sp, url: "https://r.example/\(i)") }; return s }
+  // HIGH 1: a busy database must NEVER be truncated/recovered; newer schema must not be touched either
+  let bp = tmpDB(); do { let (m, _, _) = try SessionManager.start(path: bp); try m.save(fresh2(4)) }
+  let beforeBytes = try Data(contentsOf: URL(fileURLWithPath: bp))
+  var lockH: OpaquePointer?; sqlite3_open(bp, &lockH); sqlite3_exec(lockH, "BEGIN IMMEDIATE", nil, nil, nil)   // another process holds the write lock
+  do { _ = try SessionManager.start(path: bp); check(false, "busy database: start() must throw") } catch { check((error as? StoreError).map { if case .busy = $0 { return true }; return false } ?? false, "busy database: start() throws .busy instead of recovering") }
+  sqlite3_exec(lockH, "ROLLBACK", nil, nil, nil); sqlite3_close(lockH)
+  check(try Data(contentsOf: URL(fileURLWithPath: bp)) == beforeBytes || ((try? Store(path: bp).load().tabs.count) == 4), "busy database: the healthy DB was NOT truncated (4 tabs intact)")
+  let (mAfter, sAfter, rAfter) = try SessionManager.start(path: bp); _ = mAfter
+  check(rAfter == .clean && sAfter.tabs.count == 4, "busy database: after the lock is released the session loads normally")
+  let tp = tmpDB(); var th: OpaquePointer?; sqlite3_open(tp, &th); sqlite3_exec(th, "PRAGMA user_version=99; CREATE TABLE t(x);", nil, nil, nil); sqlite3_close(th)
+  let tooNewBefore = try Data(contentsOf: URL(fileURLWithPath: tp))
+  do { _ = try SessionManager.start(path: tp); check(false, "newer schema: start() must throw") } catch { check((error as? StoreError) == .schemaTooNew(99), "newer schema: start() throws and does not recover") }
+  check(try Data(contentsOf: URL(fileURLWithPath: tp)) == tooNewBefore, "newer schema: file untouched (downgrade cannot destroy data)")
+
+  // HIGH 2: restore from backup keeps the tab restore-state blobs; reports backup age
+  let rp = tmpDB(); let blobTab = TabID(); let blob = Data("deep history".utf8)
+  do { let (m, _, _) = try SessionManager.start(path: rp); let st = fresh2(3); try m.save(st); m.persistTabState(blobTab, blob); _ = try m.rotateBackup() }
+  try Data((0..<2048).map { _ in UInt8.random(in: 0...255) }).write(to: URL(fileURLWithPath: rp))
+  for sfx in ["-wal", "-shm"] where FileManager.default.fileExists(atPath: rp + sfx) { try Data().write(to: URL(fileURLWithPath: rp + sfx)) }
+  let (mr, sr, rr) = try SessionManager.start(path: rp)
+  if case .restoredFromBackup(_, let age) = rr { check(sr.tabs.count == 3 && mr.tabState(blobTab) == blob && age >= 0 && age < 60, "restore from backup keeps tab restore blobs and reports the backup age (\(Int(age)) s)") } else { check(false, "restore from backup (got \(rr))") }
+
+  // MEDIUM: failed saves are retried; failed blob writes are queued
+  let fp = tmpDB(); let (mf, _, _) = try SessionManager.start(path: fp, debounce: 0.05); mf.retryBase = 0.05
+  var failures2 = 0; mf.onSaveFailure = { _ in failures2 += 1 }
+  mf.store._failWrites = 2; mf.scheduleSave(fresh2(6))
+  try await Task.sleep(nanoseconds: 700_000_000)
+  check(failures2 == 2 && mf.lastSaveError == nil && (try? Store(path: fp).load().tabs.count) == 6, "save failures are reported and RETRIED until the state is written (\(failures2) failures, then success)")
+  let qt = TabID(); mf.store._failWrites = 1; mf.persistTabState(qt, Data("q".utf8))
+  check(mf.tabState(qt) == Data("q".utf8), "failed blob write is queued and still readable")
+  try mf.flush(); check((try? Store(path: fp).tabState(qt)) == Data("q".utf8), "queued blob is written on the next flush")
+  mf.store._failReads = 1; let rf = mf.tabStateResult(qt); check(rf.failed && rf.data == nil, "a failed blob READ is flagged, not reported as 'no history'")
+
+  // MEDIUM: engine syncs live URL/title; profile move rebuilds under the new data store; unreadable blob never overwritten
+  let sp2 = tmpDB(); let (se, s0, _) = try SessionManager.start(path: sp2, debounce: 0.05)
+  let f2 = FFactory(); let e2 = BrowserEngine(session: se, state: s0, factory: f2)
+  let pW = ProfileID(), pP = ProfileID(); let spW = e2.addSpace(name: "W", profile: pW), spP = e2.addSpace(name: "P", profile: pP)
+  let wnd = e2.openWindow(space: spW)!; let tt = e2.newTab(in: spW, url: "https://start.example", window: wnd)!
+  f2.made[tt]!.url = URL(string: "https://navigated.example/page"); f2.made[tt]!.title = "Navigated"; f2.made[tt]!.state = Data("hist-W".utf8)
+  try e2.shutdown()
+  check(e2.state.tabs[tt]?.url == "https://navigated.example/page" && e2.state.tabs[tt]?.title == "Navigated", "engine writes the live URL and title back into the saved model")
+  if case .needsProfileConfirmation = e2.moveTab(tt, to: spP) { check(f2.profiles[tt]?.count == 1, "cross-profile move without confirmation changes nothing") } else { check(false, "cross-profile move needs confirmation") }
+  _ = e2.moveTab(tt, to: spP, confirmedCrossProfile: true)
+  check(f2.profiles[tt] == [pW, pP], "after a confirmed cross-profile move the tab is REBUILT under the destination profile's data store")
+  check(f2.made[tt]!.restored == Data("hist-W".utf8), "profile move carries the tab's history across")
+  let orphanSp = tmpDB(); let (so, _, _) = try SessionManager.start(path: orphanSp); let pu = ProfileID(); let ub = TabID(); so.persistTabState(ub, Data("precious".utf8))
+  var os2 = BrowserState(); let osp = os2.addSpace(name: "O", profile: pu); let otid = os2.addTab(in: osp, url: "https://o.example")!
+  _ = ub; so.persistTabState(otid, Data("precious".utf8)); so.store._failReads = 1
+  let f3 = FFactory(); let e3 = BrowserEngine(session: so, state: os2, factory: f3); f3.made[otid]!.state = Data("short".utf8)
+  try e3.shutdown(); check((try? so.store.tabState(otid)) == Data("precious".utf8), "unreadable saved history is never overwritten by a shorter one")
+}
+// 20. LifecycleManager: stamps on leaving visibility; sleepNow refuses unresponsive tabs
+do {
+  nonisolated(unsafe) var cn = Date(timeIntervalSince1970: 7_000_000)
+  let mg = LifecycleManager(config: .relaxed, clock: { cn })
+  let vt = FakeTab(), other2 = FakeTab(); mg.register(vt, host: "v.example"); mg.register(other2, host: "o.example")
+  mg.setVisible([vt.id]); cn = cn.addingTimeInterval(3 * 3600)           // shown for 3 hours
+  mg.setVisible([other2.id])                                              // switched space: vt is no longer shown
+  let rv = await mg.pass()
+  check(vt.live && !rv.hibernated.contains(vt.id), "tab shown for hours is NOT hibernated the moment it leaves the screen (idle clock starts then)")
+  let hu = FakeTab(); hu.sig.isUnresponsive = true; mg.register(hu, host: "h.example"); mg.setVisible([other2.id])
+  let slept = await mg.sleepNow(hu.id)
+  check(!slept && hu.live, "sleepNow refuses an unresponsive tab (cannot tell if media is playing)")
 }
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

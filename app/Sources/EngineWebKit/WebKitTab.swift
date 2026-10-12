@@ -65,6 +65,13 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, EngineTab {
 
   public var isLive: Bool { webView != nil }
   @discardableResult public func ensureLiveView() -> Bool { let was = webView == nil; ensureLive(); return was }
+  public var currentURL: URL? { webView?.url ?? url }
+  public var currentTitle: String? { (webView?.title).flatMap { $0.isEmpty ? nil : $0 } ?? (title.isEmpty ? nil : title) }
+  /// Archive of the live page's interaction state (or the saved one while hibernated).
+  public func captureState() -> Data? {
+    if let w = webView, let st = w.interactionState { return try? NSKeyedArchiver.archivedData(withRootObject: st, requiringSecureCoding: false) }
+    return savedState
+  }
   public func setURL(_ u: URL) { url = u }
 
   /// Make the tab live (creating the web view if hibernated) and return it.
@@ -77,6 +84,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, EngineTab {
     if let s = savedState, let obj = try? NSKeyedUnarchiver.unarchivedObject(ofClasses: [NSData.self, NSDictionary.self, NSArray.self, NSString.self, NSNumber.self, NSURL.self, NSDate.self], from: s) {
       w.interactionState = obj                       // restores history + scroll + form hints
       restoredFromState = true
+      savedState = nil                               // consumed: a later nil interactionState must not resurrect this old page
     } else if let u = url { restoredFromState = false; w.load(URLRequest(url: u)) }
     return w
   }

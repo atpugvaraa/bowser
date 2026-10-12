@@ -77,3 +77,12 @@ Spikes are throwaway. These patterns must NOT carry into product code:
 - Opt-in `UsageRecorder` (hashed host/tab, 0600, rotation) is the path to tuning on real habits; nothing is sent anywhere.
 - Third review applied: Proxy-based socket wrapper (keeps subclassing/new.target/name); native dirty/connection claims expire (12 h), ids validated, tables capped (64 frames/view); state forgotten on crash and for every new view; hibernate() refuses `isActive` tabs unless forced; usage log never overwrites an unreadable file, created 0600 from byte one, rotation via private temp + rename; scale harness fails closed (swap unreadable => abort), guards every phase, uses the product preset and non-persistent data stores, fixed git-ignored data dir (no temp dirs), server readiness polled.
 - When running `swift run --skip-build` by hand, ALWAYS check the build output first: a failed build silently runs the previous binary (bit me twice). The gate is safe; manual loops are not.
+
+## 2026-10-13 (engine facade night) — 4th review
+- **Only real corruption may trigger recovery.** `StoreError.isCorruption` (SQLITE_NOTADB/CORRUPT, bad content) vs busy/locked, newer schema, I/O: the latter are thrown with every file untouched. A newer-schema DB is not even switched to WAL (probe `user_version` before any write pragma). Tested: lock held by another connection, schema 99, garbage file.
+- Restoring from a backup copies the WHOLE database (tab restore blobs included) via the SQLite backup API; reports the backup's age. Backups only rotate after `PRAGMA quick_check` passes; sidecar missing => overwrite oldest slot.
+- Saves never silently fail: `lastSaveError` + `onSaveFailure` + exponential retry; failed blob writes queue and flush later; an unreadable blob is never replaced by a shorter history.
+- `moveTab` across profiles REBUILDS the tab under the destination profile's data store (a live WKWebView keeps its old configuration forever otherwise = identity leak).
+- Engine writes live URL/title/lastActive back into the model; visible tabs are always live; leaving visibility starts the idle clock; `sleepNow` refuses unresponsive tabs.
+- Manual `swift run --skip-build` after a failed build runs the OLD binary (3rd time). Gate it on the build exit code.
+- Test double lesson: a stale open connection in the test caused "database is locked"; scope the first 'process' before damaging files.
