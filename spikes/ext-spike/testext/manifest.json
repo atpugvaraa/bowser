@@ -1,4 +1,48 @@
-{"manifest_version":3,"name":"Spike","version":"1.0",
- "permissions":["storage"],"host_permissions":["http://127.0.0.1/*"],
- "background":{"service_worker":"bg.js"},
- "content_scripts":[{"matches":["http://127.0.0.1/*"],"js":["cs.js"],"run_at":"document_end"}]}
+{
+ "manifest_version": 3,
+ "name": "Spike",
+ "version": "1.0",
+ "permissions": [
+  "storage",
+  "tabs",
+  "webNavigation",
+  "declarativeNetRequest",
+  "declarativeNetRequestWithHostAccess",
+  "webRequest",
+  "contextMenus",
+  "scripting",
+  "alarms",
+  "cookies",
+  "notifications",
+  "downloads",
+  "history",
+  "bookmarks",
+  "idle",
+  "menus",
+  "nativeMessaging",
+  "offscreen",
+  "sidePanel",
+  "identity"
+ ],
+ "host_permissions": [
+  "http://127.0.0.1/*"
+ ],
+ "background": {
+  "service_worker": "bg.js"
+ },
+ "content_scripts": [
+  {
+   "matches": [
+    "http://127.0.0.1/*"
+   ],
+   "js": [
+    "cs.js"
+   ],
+   "run_at": "document_end"
+  }
+ ],
+ "description": "Spike test extension",
+ "action": {
+  "default_title": "spike"
+ }
+}
