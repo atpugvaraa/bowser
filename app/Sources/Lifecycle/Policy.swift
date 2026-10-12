@@ -70,6 +70,7 @@ public struct PolicyConfig: Sendable, Codable {
   public var pinnedMultiplier = 3.0
   public var liveConnectionMultiplier = 3.0         // grace multiplier for tabs with an open WebSocket/EventSource
   public var audibleGrace: TimeInterval = 10 * 60   // keep a tab live this long after its audio stops
+  public var neverSleepHosts: [String] = []         // user list: tabs on these sites (and their subdomains) are never slept
   public var pressureScale = PressureTable<Double>(normal: 1.0, warning: 0.5, critical: 0.25)
   public var maxLive = PressureTable<Int>(normal: 60, warning: 40, critical: 20)
   /// A tab idle for less than this is never shed by the live-tab budget. Shrinks as memory pressure rises so a burst of
@@ -87,9 +88,10 @@ public struct PolicyConfig: Sendable, Codable {
     maxGrace = get(.maxGrace, maxGrace); taperWidth = get(.taperWidth, taperWidth); pinnedMultiplier = get(.pinnedMultiplier, pinnedMultiplier)
     liveConnectionMultiplier = get(.liveConnectionMultiplier, liveConnectionMultiplier); audibleGrace = get(.audibleGrace, audibleGrace)
     pressureScale = get(.pressureScale, pressureScale); maxLive = get(.maxLive, maxLive); budgetFloor = get(.budgetFloor, budgetFloor)
+    neverSleepHosts = get(.neverSleepHosts, neverSleepHosts)
   }
   enum CodingKeys: String, CodingKey {
-    case enabled, defaultGrace, minGrace, criticalFloor, gapFactor, coldGap, maxGrace, taperWidth, pinnedMultiplier, liveConnectionMultiplier, audibleGrace, pressureScale, maxLive, budgetFloor
+    case enabled, defaultGrace, minGrace, criticalFloor, gapFactor, coldGap, maxGrace, taperWidth, pinnedMultiplier, liveConnectionMultiplier, audibleGrace, pressureScale, maxLive, budgetFloor, neverSleepHosts
   }
 
   /// Product default for a heavy multi-tab user (tuned on the simulator, see docs/results/policy-sim-*): tabs stay alive long,
@@ -99,6 +101,22 @@ public struct PolicyConfig: Sendable, Codable {
     c.minGrace = 45 * 60; c.defaultGrace = 90 * 60; c.coldGap = 90 * 60; c.gapFactor = 3; c.maxGrace = 6 * 3600; c.criticalFloor = 10 * 60
     c.maxLive = .init(normal: 100, warning: 70, critical: 40)
     return c
+  }
+
+  /// Lowercased bare host (no scheme/path/port/wildcard). Empty if it can't be a host.
+  public static func normalizeHost(_ raw: String) -> String {
+    var h = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    if let r = h.range(of: "://") { h = String(h[r.upperBound...]) }
+    if let i = h.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" || $0 == ":" }) { h = String(h[..<i]) }
+    if h.hasPrefix("*.") { h.removeFirst(2) }
+    if h.hasPrefix("www.") { h.removeFirst(4) }
+    guard !h.isEmpty, h.count <= 253, h.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }), !h.hasPrefix("."), !h.hasSuffix(".") else { return "" }
+    return h
+  }
+  /// True if `host` is one of the user's never-sleep sites or a subdomain of one.
+  public func isNeverSleep(host: String?) -> Bool {
+    guard let h = host?.lowercased(), !h.isEmpty else { return false }
+    return neverSleepHosts.contains { h == $0 || h.hasSuffix("." + $0) }
   }
 
   /// Clamp user input to sane values (a typo must never hibernate everything).
@@ -115,6 +133,7 @@ public struct PolicyConfig: Sendable, Codable {
     c.pinnedMultiplier = min(max(fin(c.pinnedMultiplier, 3), 1), 20)
     c.audibleGrace = min(max(fin(c.audibleGrace, 600), 0), 24 * 3600)
     c.liveConnectionMultiplier = min(max(fin(c.liveConnectionMultiplier, 3), 1), 20)
+    c.neverSleepHosts = Array(Set(c.neverSleepHosts.map { PolicyConfig.normalizeHost($0) }.filter { !$0.isEmpty })).sorted().prefix(200).map { $0 }
     func sc(_ x: Double) -> Double { min(max(fin(x, 1), 0.05), 1) }
     c.pressureScale = .init(normal: sc(c.pressureScale.normal), warning: sc(c.pressureScale.warning), critical: sc(c.pressureScale.critical))
     func ml(_ x: Int) -> Int { max(x, 1) }
@@ -179,6 +198,7 @@ public enum HibernationPolicy {
     var byID: [TabID: TabInfo] = [:], extra: [TabID: Set<Protection>] = [:]
     for t in rawTabs {
       extra[t.id, default: []].formUnion(protections(t, now: now, audibleGrace: c.audibleGrace))
+      if c.isNeverSleep(host: t.host) { extra[t.id, default: []].insert(.userRule) }          // the user's never-sleep sites, enforced by the policy itself
       if let o = byID[t.id] { if t.lastActive > o.lastActive { byID[t.id] = t } } else { byID[t.id] = t }
     }
     var live = 0

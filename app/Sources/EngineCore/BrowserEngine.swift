@@ -142,6 +142,15 @@ public final class BrowserEngine {
     try EngineSettings.savePolicy(lifecycle.config, to: session)
   }
 
+  /// Add/remove a site from the never-sleep list (matches the domain and its subdomains). Returns the new state (true = never sleeps).
+  @discardableResult public func toggleNeverSleep(host: String) throws -> Bool {
+    var c = lifecycle.config; let h = PolicyConfig.normalizeHost(host)
+    guard !h.isEmpty else { return false }
+    let nowOn: Bool
+    if let i = c.neverSleepHosts.firstIndex(of: h) { c.neverSleepHosts.remove(at: i); nowOn = false } else { c.neverSleepHosts.append(h); nowOn = true }
+    try updatePolicy(c); return nowOn
+  }
+
   // MARK: navigation (address bar, toolbar)
   /// What the user typed in the address bar. Returns false if the input was refused (e.g. javascript:, file:).
   @discardableResult public func navigate(tab id: TabID, input: String, searchTemplate: String = URLInput.defaultSearch) -> Bool {

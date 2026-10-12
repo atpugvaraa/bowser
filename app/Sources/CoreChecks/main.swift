@@ -837,5 +837,27 @@ do {
   let ru = EngineSettings.loadUsage(from: ses); check(ru.expectedGap(host: "b") == 60, "habits: a damaged entry is dropped, valid ones kept")
   try ses.store.setSetting("usage.v1", Data("garbage".utf8)); check(EngineSettings.loadUsage(from: ses).gaps.isEmpty, "habits: corrupt saved model -> empty model (no crash)")
 }
+// 25. Never-sleep sites
+do {
+  var ns = PolicyConfig.relaxed; ns.neverSleepHosts = ["chat.example", "WWW.Dashboard.Example/path?x=1", "bad host", "", "*.wild.example", "https://url.example:8443/x"]
+  let v = ns.validated()
+  check(v.neverSleepHosts == ["chat.example", "dashboard.example", "url.example", "wild.example"], "never-sleep: entries normalised (lowercase, no scheme/path/port/www/wildcard); junk dropped (\(v.neverSleepHosts))")
+  check(v.isNeverSleep(host: "chat.example") && v.isNeverSleep(host: "app.chat.example") && !v.isNeverSleep(host: "notchat.example") && !v.isNeverSleep(host: "chat.example.evil.com"), "never-sleep: matches the domain and subdomains only (no suffix tricks)")
+  check(!PolicyConfig.relaxed.isNeverSleep(host: "chat.example") && !v.isNeverSleep(host: nil), "never-sleep: empty by default; nil host safe")
+  let site = tab("chat.example", idle: 90 * 86_400)
+  check(hib([site], config: v).isEmpty, "never-sleep: a listed site is never hibernated, however idle")
+  check(hib([tab("other.example", idle: 90 * 86_400)], config: v).count == 1, "never-sleep: other sites still sleep normally")
+  let manyNS: [TabInfo] = (0..<10).map { _ in tab("chat.example", idle: 9000) }
+  var bud = v; bud.maxLive = .init(normal: 3, warning: 3, critical: 3)
+  check(hib(manyNS, config: bud).isEmpty, "never-sleep: exempt from the live-tab budget too (user's explicit choice)")
+  let rt = try JSONDecoder().decode(PolicyConfig.self, from: JSONEncoder().encode(v)); check(rt.neverSleepHosts == v.neverSleepHosts, "never-sleep: list round-trips through JSON")
+  let oldJSON = try JSONDecoder().decode(PolicyConfig.self, from: Data(#"{"defaultGrace": 3600}"#.utf8)); check(oldJSON.neverSleepHosts.isEmpty, "never-sleep: an older settings file without the key loads fine")
+  // engine toggle persists
+  let nsp = tmpDB(); let (nss, ns0, _) = try SessionManager.start(path: nsp, debounce: 0.05); let nse = BrowserEngine(session: nss, state: ns0, factory: FFactory())
+  check(try nse.toggleNeverSleep(host: "https://Music.Example/x") == true && nse.policy.neverSleepHosts == ["music.example"], "engine: toggle adds a site")
+  check(EngineSettings.loadPolicy(from: nss).neverSleepHosts == ["music.example"], "engine: the list is persisted")
+  check(try nse.toggleNeverSleep(host: "music.example") == false && nse.policy.neverSleepHosts.isEmpty, "engine: toggling again removes it")
+  check(try nse.toggleNeverSleep(host: "!!!") == false && nse.policy.neverSleepHosts.isEmpty, "engine: an invalid host is ignored")
+}
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

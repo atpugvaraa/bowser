@@ -75,6 +75,7 @@ public final class LifecycleManager {
       guard let t = tabs[id] else { continue }               // may be unregistered while we await
       var ti = TabInfo(id: id, host: host[id], lastActive: lastActive[id] ?? now)
       ti.liveness = t.isLive ? .live : .hibernated
+      ti.userProtected = config.isNeverSleep(host: host[id])             // the user's never-sleep sites
       if t.isLive {
         let s = await t.signals(timeout: signalTimeout)
         ti.isLoading = s.isLoading; ti.isPlayingMedia = s.isPlayingMedia; ti.isCapturing = s.isCapturing
@@ -103,6 +104,7 @@ public final class LifecycleManager {
     let s = await t.signals(timeout: signalTimeout)
     if s.isUnresponsive { return false }                  // can't tell whether media/a call is running: do not guess
     var ti = TabInfo(id: id, host: host[id], lastActive: lastActive[id] ?? clock())
+    ti.userProtected = config.isNeverSleep(host: host[id])
     ti.isLoading = s.isLoading; ti.isPlayingMedia = s.isPlayingMedia; ti.isCapturing = s.isCapturing; ti.hasUnsavedForm = s.hasDirtyForm
     if !HibernationPolicy.protections(ti).isEmpty { return false }
     if visible.contains(id) || id == active { return false }          // user may have switched during the await

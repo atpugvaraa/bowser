@@ -31,6 +31,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     ("maxLiveWarning", "Awake tabs limit — memory warning", ""),
     ("maxLiveCritical", "Awake tabs limit — memory critical", ""),
   ]
+  private let neverSleep = NSTextField()
 
   private func build() {
     let root = NSView(); window.contentView = root
@@ -44,6 +45,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       let f = NSTextField(); f.widthAnchor.constraint(equalToConstant: 70).isActive = true; f.alignment = .right; f.toolTip = help; fields[key] = f
       row.addArrangedSubview(l); row.addArrangedSubview(f); stack.addArrangedSubview(row)
     }
+    let ns = NSStackView(); ns.orientation = .vertical; ns.alignment = .leading; ns.spacing = 4
+    let nl = NSTextField(labelWithString: "Never sleep these sites (comma-separated):"); neverSleep.placeholderString = "music.example, chat.example"; neverSleep.widthAnchor.constraint(equalToConstant: 420).isActive = true
+    ns.addArrangedSubview(nl); ns.addArrangedSubview(neverSleep); stack.addArrangedSubview(ns)
     let apply = NSButton(title: "Apply", target: self, action: #selector(applyClicked)); apply.bezelStyle = .rounded; apply.keyEquivalent = "\r"
     let reset = NSButton(title: "Reset to Defaults", target: self, action: #selector(resetClicked)); reset.bezelStyle = .rounded
     let buttons = NSStackView(views: [reset, apply]); buttons.spacing = 10
@@ -59,12 +63,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     fields["defaultGrace"]?.stringValue = minutes(c.defaultGrace); fields["minGrace"]?.stringValue = minutes(c.minGrace)
     fields["criticalFloor"]?.stringValue = minutes(c.criticalFloor); fields["audibleGrace"]?.stringValue = minutes(c.audibleGrace)
     fields["maxLiveNormal"]?.stringValue = "\(c.maxLive.normal)"; fields["maxLiveWarning"]?.stringValue = "\(c.maxLive.warning)"; fields["maxLiveCritical"]?.stringValue = "\(c.maxLive.critical)"
+    neverSleep.stringValue = c.neverSleepHosts.joined(separator: ", ")
     status.stringValue = ""
   }
   private func num(_ k: String) -> Double? { fields[k].flatMap { Double($0.stringValue.trimmingCharacters(in: .whitespaces)) } }
 
   /// Test hook: type values into the real fields and press Apply.
-  func testApply(_ values: [String: String]) { for (k, v) in values { fields[k]?.stringValue = v }; applyClicked() }
+  func testApply(_ values: [String: String], neverSleepSites: String? = nil) { for (k, v) in values { fields[k]?.stringValue = v }; if let n = neverSleepSites { neverSleep.stringValue = n }; applyClicked() }
   var statusText: String { status.stringValue }
 
   @objc private func applyClicked() {
@@ -74,6 +79,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     c.enabled = enabled.state == .on
     c.defaultGrace = dg * 60; c.minGrace = mg * 60; c.criticalFloor = cf * 60; c.audibleGrace = ag * 60
     c.maxLive = .init(normal: Int(ln), warning: Int(lw), critical: Int(lc))
+    c.neverSleepHosts = neverSleep.stringValue.split(whereSeparator: { $0 == "," || $0 == "\n" || $0 == " " }).map(String.init)
     do { try app.engine.updatePolicy(c); load(); status.stringValue = "Saved."; status.textColor = .systemGreen } catch { status.stringValue = "Couldn't save: \(error)"; status.textColor = .systemRed }
   }
   @objc private func resetClicked() {

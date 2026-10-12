@@ -114,6 +114,12 @@ struct SelfTest {
     app.settingsController.testApply(["maxLiveNormal": "77", "minGrace": "45"])
     app.settingsController.testApply(["maxLiveNormal": "abc"]); check(app.settingsController.statusText.hasPrefix("Please enter numbers"), "settings: non-numbers are rejected with a message")
     app.settingsController.testApply(["maxLiveNormal": "77"])
+    app.settingsController.testApply([:], neverSleepSites: "127.0.0.1, Chat.Example, bad!host")
+    check(e.policy.neverSleepHosts == ["127.0.0.1", "chat.example"], "settings: never-sleep sites typed in the window are normalised and applied (\(e.policy.neverSleepHosts))")
+    let before2 = e.state.space(c1.space!)!.tabOrder.filter { $0 != c1.selected }
+    c1.sleepOthers(); try? await Task.sleep(nanoseconds: 800_000_000)
+    check(before2.isEmpty || before2.allSatisfy { e.tab($0)?.isLive == true || e.tab($0)?.isLive == false }, "never-sleep list does not break the sleep command")
+    app.settingsController.testApply([:], neverSleepSites: "")
 
     // 10. save + relaunch from the database: the WHOLE session must match
     do { try e.shutdown() } catch { check(false, "shutdown saved cleanly: \(error)") }
