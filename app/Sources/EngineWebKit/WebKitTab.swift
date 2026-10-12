@@ -7,7 +7,7 @@ import WebKit
 /// (freeing the WebContent process memory) and keeps just enough to restore (URL, history, scroll via interactionState).
 /// The website data store lives in the shared configuration, so cookies/logins survive hibernation.
 @MainActor
-public final class WebKitTab: NSObject, WKNavigationDelegate, EngineTab {
+public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, EngineTab {
   public let id: TabID
   public private(set) var url: URL?
   public private(set) var title: String = ""
@@ -25,6 +25,22 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, EngineTab {
   public func restore(state: Data?) { savedState = state }
   public var onChange: (() -> Void)?
   public var onCrash: (() -> Void)?
+  /// Page asked for a new window/tab (window.open, target=_blank): the engine opens it as a tab. Never a raw popup window.
+  public var onOpenURL: ((URL) -> Void)?
+  /// A user click on a mailto:/tel:/app link: hand it to the system (only after a real click, see NavigationPolicy).
+  public var onOpenExternally: ((URL) -> Void)?
+  /// Camera/microphone request from a page. Default DENY; the UI shows a prompt and may remember the answer per profile.
+  public var decideCapture: ((_ host: String, _ camera: Bool, _ microphone: Bool) async -> Bool)?
+  public var onDownload: ((WKDownload) -> Void)?
+  public var onProgress: ((Double) -> Void)?
+  public private(set) var lastBlockedNavigation: String?
+  public private(set) var events: [String] = []             // recent delegate events (diagnostics)
+  public private(set) var lastLoadError: String?          // "domain:code" of the last failed load (for the UI and tests)
+  public private(set) var canGoBack = false
+  public private(set) var canGoForward = false
+  public private(set) var progress: Double = 0
+  public private(set) var isLoadingPage = false
+  private var observers: [NSKeyValueObservation] = []
   private let configuration: WKWebViewConfiguration
   private var savedState: Data?
 
@@ -79,7 +95,9 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, EngineTab {
     if let w = webView { return w }
     let w = WKWebView(frame: .init(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
     w.navigationDelegate = self
+    w.uiDelegate = self
     webView = w
+    observe(w)
     DirtyTracker.shared.forget(w)                    // a recycled object address must not inherit another view's state
     if let s = savedState, let obj = try? NSKeyedUnarchiver.unarchivedObject(ofClasses: [NSData.self, NSDictionary.self, NSArray.self, NSString.self, NSNumber.self, NSURL.self, NSDate.self], from: s) {
       w.interactionState = obj                       // restores history + scroll + form hints
@@ -96,6 +114,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, EngineTab {
     url = w.url ?? url; title = w.title ?? title
     if let st = w.interactionState, let data = try? NSKeyedArchiver.archivedData(withRootObject: st, requiringSecureCoding: false) { savedState = data } else { savedState = nil }   // never keep a stale state over a newer url
     DirtyTracker.shared.forget(w)
+    observers.removeAll(); w.uiDelegate = nil
     w.stopLoading(); w.navigationDelegate = nil
     w.removeFromSuperview()
     webView = nil                                    // last strong ref: WebContent process can exit
@@ -211,4 +230,80 @@ final class WeakHandler: NSObject, WKScriptMessageHandler {
   weak var target: DirtyTracker?
   init(_ t: DirtyTracker) { target = t }
   func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) { MainActor.assumeIsolated { target?.userContentController(c, didReceive: m) } }
+}
+
+// MARK: observation, navigation policy, popups, downloads, capture, errors
+extension WebKitTab {
+  fileprivate func observe(_ w: WKWebView) {
+    observers = [
+      w.observe(\.title, options: [.new]) { [weak self] v, _ in MainActor.assumeIsolated { self?.title = v.title ?? ""; self?.onChange?() } },
+      w.observe(\.url, options: [.new]) { [weak self] v, _ in MainActor.assumeIsolated { if let u = v.url { self?.url = u }; self?.onChange?() } },
+      w.observe(\.estimatedProgress, options: [.new]) { [weak self] v, _ in MainActor.assumeIsolated { self?.progress = v.estimatedProgress; self?.onProgress?(v.estimatedProgress) } },
+      w.observe(\.isLoading, options: [.new]) { [weak self] v, _ in MainActor.assumeIsolated { self?.isLoadingPage = v.isLoading; self?.onChange?() } },
+      w.observe(\.canGoBack, options: [.new]) { [weak self] v, _ in MainActor.assumeIsolated { self?.canGoBack = v.canGoBack; self?.onChange?() } },
+      w.observe(\.canGoForward, options: [.new]) { [weak self] v, _ in MainActor.assumeIsolated { self?.canGoForward = v.canGoForward; self?.onChange?() } },
+    ]
+    canGoBack = w.canGoBack; canGoForward = w.canGoForward
+  }
+
+  // Navigation policy: the pure rules in NavigationPolicy, enforced here.
+  public func webView(_ w: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+    note("action \(action.request.url?.lastPathComponent ?? "?") download=\(action.shouldPerformDownload)")
+    let click = action.navigationType == .linkActivated
+    let main = action.targetFrame?.isMainFrame ?? true
+    switch NavigationPolicy.decide(url: action.request.url, userInitiated: click, isMainFrame: main) {
+    case .allow: decisionHandler(action.shouldPerformDownload ? .download : .allow)
+    case .openExternally: if let u = action.request.url { onOpenExternally?(u) }; decisionHandler(.cancel)
+    case .block(let why): lastBlockedNavigation = "\(action.request.url?.absoluteString ?? "?"): \(why)"; decisionHandler(.cancel)
+    }
+  }
+  public func webView(_ w: WKWebView, decidePolicyFor response: WKNavigationResponse, decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
+    note("response mime=\(response.response.mimeType ?? "?") canShow=\(response.canShowMIMEType)")
+    decisionHandler(response.canShowMIMEType ? .allow : .download)
+  }
+  public func webView(_ w: WKWebView, navigationAction: WKNavigationAction, didBecome d: WKDownload) { note("action->download"); onDownload?(d) }
+  public func webView(_ w: WKWebView, navigationResponse: WKNavigationResponse, didBecome d: WKDownload) { note("response->download"); onDownload?(d) }
+  fileprivate func note(_ e: String) { events.append(e); if events.count > 40 { events.removeFirst(events.count - 40) } }
+
+  // Load failures (including untrusted certificates): a safe built-in page, no bypass.
+  public func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError error: Error) { showError(w, error) }
+  public func webView(_ w: WKWebView, didFail n: WKNavigation!, withError error: Error) { showError(w, error) }
+  private func showError(_ w: WKWebView, _ error: Error) {
+    let e = error as NSError
+    lastLoadError = "\(e.domain):\(e.code)"
+    if e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled { return }          // our own cancels (policy / superseded loads)
+    if e.domain == "WebKitErrorDomain" && e.code == 102 { return }                       // frame load interrupted (e.g. became a download)
+    let d = ErrorPage.describe(domain: e.domain, code: e.code)
+    let failing = (e.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString ?? url?.absoluteString
+    w.loadHTMLString(ErrorPage.html(url: failing, title: d.title, message: d.message, code: e.code), baseURL: nil)
+  }
+
+  // Popups: never a raw window. window.open / target=_blank become a tab (through the engine).
+  public func webView(_ w: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+    if let u = action.request.url, case .allow = NavigationPolicy.decide(url: u, userInitiated: action.navigationType == .linkActivated, isMainFrame: true) { onOpenURL?(u) }
+    return nil
+  }
+
+  // Camera / microphone: deny unless the UI says yes.
+  public func webView(_ w: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType, decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void) {
+    guard let ask = decideCapture else { decisionHandler(.deny); return }
+    let cam = type == .camera || type == .cameraAndMicrophone, mic = type == .microphone || type == .cameraAndMicrophone
+    Task { @MainActor in decisionHandler(await ask(origin.host, cam, mic) ? .grant : .deny) }
+  }
+}
+
+extension WebKitTab {
+  /// ObjC selectors WebKit must be able to call on a WebKitTab / DownloadCoordinator. A Swift method whose name is slightly wrong
+  /// compiles fine but does not satisfy the protocol, is not exposed to Objective-C, and is silently NEVER called (this happened
+  /// with `didBecomeDownload` vs the real Swift name `didBecome`). Checking the real ObjC selectors at runtime catches that.
+  /// Returns the selectors that are missing (must be empty).
+  public static func missingDelegateMethods() -> [String] {
+    let tab = ["webView:decidePolicyForNavigationAction:decisionHandler:", "webView:decidePolicyForNavigationResponse:decisionHandler:",
+               "webView:navigationAction:didBecomeDownload:", "webView:navigationResponse:didBecomeDownload:",
+               "webView:didFailProvisionalNavigation:withError:", "webView:didFailNavigation:withError:", "webView:didFinishNavigation:",
+               "webViewWebContentProcessDidTerminate:", "webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:",
+               "webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:"]
+    let dl = ["download:decideDestinationUsingResponse:suggestedFilename:completionHandler:", "downloadDidFinish:", "download:didFailWithError:resumeData:"]
+    return tab.filter { !WebKitTab.instancesRespond(to: Selector($0)) } + dl.filter { !DownloadCoordinator.instancesRespond(to: Selector($0)) }
+  }
 }

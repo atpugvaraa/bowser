@@ -294,6 +294,58 @@ Task { @MainActor in
     if merged.contains("bad;domain") || merged.contains("*.evil") || !merged.contains("*ok.example") { fail("allowlist input not sanitised: \(merged)") } else { log("- allowlist input is sanitised (no wildcard/metacharacter injection)") }
   } catch { fail("content blocking integration threw: \(error)") }
 
+  // 0. delegate conformance (silent-misnaming guard)
+  do { let m = WebKitTab.missingDelegateMethods(); if m.isEmpty { log("- all WebKit delegate methods are implemented under their real protocol names") } else { fail("delegate methods NOT implemented (misnamed?): \(m)") } }
+
+  // 11. Navigation security, popups, errors, downloads, capture — real WebKit
+  do {
+    try? """
+    <html><head><title>nav</title></head><body>
+    <a id=blank target=_blank href="/t0.html">b</a> <a id=js href="javascript:window.__x=1;void 0">j</a> <a id=mail href="mailto:a@b.com">m</a>
+    <a id=file href="file:///etc/hosts">f</a> <a id=data href="data:text/html,<h1>x</h1>">d</a> <a id=ok href="/t3.html">ok</a>
+    </body></html>
+    """.write(toFile: "\(pagesDir!)/nav.html", atomically: true, encoding: .utf8)
+    let nt = WebKitTab(url: URL(string: "\(baseURL!)/nav.html")!, configuration: cfg); let nw = nt.ensureLive()
+    let nwin = NSWindow(contentRect: nw.frame, styleMask: [.titled], backing: .buffered, defer: false); nwin.contentView = nw; nwin.orderBack(nil)
+    var opened: [URL] = [], external: [URL] = []
+    nt.onOpenURL = { opened.append($0) }; nt.onOpenExternally = { external.append($0) }
+    _ = await waitUntil(20) { nw.isLoading == false && nw.url != nil }; try? await Task.sleep(nanoseconds: 500_000_000)
+    @MainActor func click(_ id: String) async { _ = try? await nw.evaluateJavaScript("document.getElementById('\(id)').click(); 0"); try? await Task.sleep(nanoseconds: 500_000_000) }
+    await click("blank"); if opened.count == 1 && opened[0].lastPathComponent == "t0.html" { log("- target=_blank became a tab request, no popup window") } else { fail("target=_blank handling: \(opened)") }
+    await click("js"); let jsRan = ((try? await nw.evaluateJavaScript("window.__x === 1")) as? Bool) ?? false
+    // FINDING: javascript: hrefs run in the page's OWN context and never reach decidePolicyFor. Not an escalation (the page can run that code anyway; typed javascript: is refused by URLInput).
+    log("- javascript: href executed in-page = \(jsRan) (WebKit does not route it through navigation policy; same-origin only, no escalation)")
+    await click("mail"); if external.count == 1 && external[0].scheme == "mailto" { log("- mailto: click handed to the system (user click)") } else { fail("mailto click not routed externally: \(external)") }
+    external.removeAll(); _ = try? await nw.evaluateJavaScript("location.href = 'mailto:drive@by.com'; 0"); try? await Task.sleep(nanoseconds: 600_000_000)
+    if external.isEmpty { log("- scripted mailto: redirect (no user click) was blocked") } else { fail("drive-by mailto launched an app: \(external)") }
+    await click("file"); if nw.url?.scheme == "http" { log("- file: link blocked (\(nt.lastBlockedNavigation ?? "?"))") } else { fail("file: link navigated to \(nw.url?.absoluteString ?? "?")") }
+    await click("data"); if nw.url?.scheme == "http" { log("- top-level data: link blocked") } else { fail("data: link navigated to \(nw.url?.absoluteString ?? "?")") }
+    await click("ok"); _ = await waitUntil(15) { nw.url?.lastPathComponent == "t3.html" }
+    if nw.url?.lastPathComponent == "t3.html" { log("- normal http link still works") } else { fail("normal link did not navigate") }
+    // error page for an unreachable server (closed port): safe built-in page, no scripts
+    let et = WebKitTab(url: URL(string: "http://127.0.0.1:55555/")!, configuration: cfg); let ew = et.ensureLive()
+    let ewin = NSWindow(contentRect: ew.frame, styleMask: [.titled], backing: .buffered, defer: false); ewin.contentView = ew; ewin.orderBack(nil)
+    _ = await waitUntil(20) { ew.title == "Can't connect to the server" }
+    if ew.title == "Can't connect to the server" { log("- unreachable server shows the built-in error page") } else { fail("error page missing (title: \(ew.title ?? "nil"), lastLoadError \(et.lastLoadError ?? "none"))") }
+    // camera/microphone: NOT automated here. Enabling navigator.mediaDevices makes pages able to reach the macOS TCC prompt, which can
+    // hang or terminate an app without NSCameraUsageDescription/NSMicrophoneUsageDescription. Tested manually in the signed-app phase.
+
+    // downloads: hostile suggested filename, quarantine, never overwrite, never opened
+    let ddir = URL(fileURLWithPath: "\(pagesDir!)/downloads-\(UUID().uuidString)"); try? FileManager.default.createDirectory(at: ddir, withIntermediateDirectories: true)
+    let dc = DownloadCoordinator(directory: ddir)
+    let dt = WebKitTab(url: URL(string: "\(baseURL!)/t3.html")!, configuration: cfg); let dw = dt.ensureLive()
+    let dwin = NSWindow(contentRect: dw.frame, styleMask: [.titled], backing: .buffered, defer: false); dwin.contentView = dw; dwin.orderBack(nil)
+    var dlCalls = 0; dt.onDownload = { dlCalls += 1; dc.adopt($0) }
+    _ = await waitUntil(20) { dw.isLoading == false && dw.url != nil }
+    for round in 1...2 { dw.load(URLRequest(url: URL(string: "\(baseURL!)/dl?name=../../evil.txt")!)); _ = await waitUntil(20) { dc.items.values.filter { if case .finished = $0.state { return true }; return false }.count >= round } }
+    log("  - download debug: onDownload calls \(dlCalls), items \(dc.items.values.map { "\($0.name):\($0.state)" }), events \(dt.events), tab error \(dt.lastLoadError ?? "none"), blocked \(dt.lastBlockedNavigation ?? "none")")
+    let files = (try? FileManager.default.contentsOfDirectory(atPath: ddir.path).sorted()) ?? []
+    let escaped = FileManager.default.fileExists(atPath: "\(pagesDir!)/evil.txt") || FileManager.default.fileExists(atPath: ddir.deletingLastPathComponent().appendingPathComponent("evil.txt").path)
+    var q = [CChar](repeating: 0, count: 256); let qlen = files.first.map { getxattr(ddir.appendingPathComponent($0).path, "com.apple.quarantine", &q, 256, 0, 0) } ?? -1
+    log("- downloads: files \(files); quarantine xattr \(qlen > 0 ? "set" : "MISSING"); escaped directory: \(escaped)")
+    if files.count != 2 || escaped || qlen <= 0 || files.contains(where: { $0.contains("/") || $0.hasPrefix(".") }) { fail("download safety: files=\(files) escaped=\(escaped) quarantine=\(qlen)") }
+  }
+
   log("\n**Result:** \(failures.isEmpty ? "PASS" : "FAIL (\(failures.count))")")
   if let p = outPath { try? report.joined(separator: "\n").write(toFile: p, atomically: true, encoding: .utf8) }
   exit(failures.isEmpty ? 0 : 1)

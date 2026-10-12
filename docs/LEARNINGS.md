@@ -86,3 +86,12 @@ Spikes are throwaway. These patterns must NOT carry into product code:
 - Engine writes live URL/title/lastActive back into the model; visible tabs are always live; leaving visibility starts the idle clock; `sleepNow` refuses unresponsive tabs.
 - Manual `swift run --skip-build` after a failed build runs the OLD binary (3rd time). Gate it on the build exit code.
 - Test double lesson: a stale open connection in the test caused "database is locked"; scope the first 'process' before damaging files.
+
+## 2026-10-13 (browser-safety night)
+- **A Swift delegate method with a slightly wrong name compiles and is NEVER called** (`didBecomeDownload` vs the real Swift name `didBecome`; ObjC selector stays `...didBecomeDownload:`). Guard: `WebKitTab.missingDelegateMethods()` checks the real ObjC selectors at runtime (run by the stress harness).
+- `javascript:` hrefs run inside the page's own context and never reach `decidePolicyFor`; not an escalation (same-origin, page could run it itself). Typed `javascript:` is refused by URLInput. Don't claim policy "blocks" them.
+- `file:` and top-level `data:` link clicks are blocked; `mailto:` only after a real click; scripted `location.href='mailto:'` is blocked; `target=_blank` becomes an engine tab request (never a raw popup).
+- Downloads: hostile name `../../evil.txt` -> `_.._evil.txt`, second copy `_.._evil 2.txt`, quarantine xattr set, nothing escapes the folder, nothing auto-opens.
+- Error pages: WebKit refuses restricted ports with `WebKitErrorDomain:103`; closed ephemeral ports give a NSURLError connect failure -> built-in page (CSP: no scripts). No TLS bypass.
+- `navigator.mediaDevices` is OFF by default in embedded WKWebView (feature `MediaDevicesEnabled`). Enabling it exposes pages to the macOS TCC prompt: it HUNG my harness (and could hang/terminate an app lacking NSCameraUsageDescription/NSMicrophoneUsageDescription). Do not automate camera/mic tests; enable only in the signed-app phase with usage strings + entitlements.
+- Never run a test that can trigger a system permission dialog on an unattended machine.

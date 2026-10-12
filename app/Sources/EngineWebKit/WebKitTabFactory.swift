@@ -16,6 +16,8 @@ public final class WebKitTabFactory: TabFactory {
     if let c = configs[profile] { return c }
     let c = WKWebViewConfiguration()
     c.websiteDataStore = persistent ? WKWebsiteDataStore(forIdentifier: profile.raw) : .nonPersistent()
+    // TODO(signed-app phase): enable `WebKitFeatureFlags.set("MediaDevicesEnabled", true, for: c.preferences)` for calls/meetings, ONLY together with
+    // NSCameraUsageDescription / NSMicrophoneUsageDescription + entitlements; without them macOS can hang or terminate the app on access.
     configs[profile] = c
     return c
   }
