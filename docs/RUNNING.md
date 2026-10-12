@@ -6,7 +6,7 @@ open app/.build/BrowserApp/Browser.app
 ```
 Your data: `~/Library/Application Support/Browser/session.sqlite` (tabs, spaces, windows, archive; mode 0600) plus rolling backups next to it; web data (cookies/logins) lives in WebKit's per-profile data stores under `~/Library/WebKit/dev.kd.browser/`.
 
-Shortcuts: ⌘T new tab · ⌘W close tab (it sleeps into the archive) · ⇧⌘T reopen · ⌘N new window · ⇧⌘N new space · ⌘L address bar · ⌘R reload · ⌘[ ⌘] back/forward · ⌃Tab next tab · ⌘1…⌘9 tab by number · Tabs ▸ Sleep Other Tabs / Memory & Tabs…
+Shortcuts: ⌘K quick open (tabs, closed tabs, bookmarks, history) · ⌘D bookmark · ⌘F find · ⌘+ ⌘− ⌘0 zoom · ⌘P print · ⌘, settings · ⌘T new tab · ⌘W close tab (it sleeps into the archive) · ⇧⌘T reopen · ⌘N new window · ⇧⌘N new space · ⌘L address bar · ⌘R reload · ⌘[ ⌘] back/forward · ⌃Tab next tab · ⌘1…⌘9 tab by number · Tabs ▸ Sleep Other Tabs / Memory & Tabs…
 
 Tests (all local, no network):
 - `scripts/gate.sh` — secret scan, build (warnings = errors), ~320 self-checks, UI self-test, media capability guard. Runs on every commit.
