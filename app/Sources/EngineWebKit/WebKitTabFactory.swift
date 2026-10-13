@@ -21,6 +21,8 @@ public final class WebKitTabFactory: TabFactory {
   public let downloads: DownloadCoordinator
   // Content blocking: the compiled list is added to every profile configuration SYNCHRONOUSLY when it is created, so the very
   // first request of a page is already covered (prepare it before creating any tab).
+  /// Extension engine; set before the first tab is made so every profile's configuration gets its controller.
+  public var extensionHost: ExtensionHost?
   private var blockingList: WKContentRuleList?
   public private(set) var blockingActive = false
   /// Compile and activate (or deactivate) blocking. Safe to call at launch and when the user flips the setting.
@@ -73,6 +75,7 @@ public final class WebKitTabFactory: TabFactory {
       WebKitFeatureFlags.set("PreferPageRenderingUpdatesNear60FPSEnabled", false, for: c.preferences)
     }
     if governor.enabled { c.userContentController.addUserScript(WKUserScript(source: governor.source, injectionTime: .atDocumentStart, forMainFrameOnly: false)) }
+    if let h = extensionHost { c.webExtensionController = h.controller(for: profile, store: c.websiteDataStore) }
     c.preferences.isElementFullscreenEnabled = true              // the player's fullscreen button (YouTube, Netflix, Prime) does nothing without this
     if let l = blockingList { c.userContentController.add(l) }
     configs[profile] = c

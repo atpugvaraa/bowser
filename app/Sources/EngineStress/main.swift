@@ -3,6 +3,7 @@ import BrowserCore
 import ContentBlocking
 import EngineCore
 import EngineWebKit
+import Extensions
 import Persistence
 import Foundation
 import Lifecycle
@@ -332,6 +333,71 @@ Task { @MainActor in
     func cl(_ d: Int, _ ac: Bool, _ pct: Int?, _ lpm: Bool) -> Int { FrameGovernor.ceiling(displayMax: d, onAC: ac, batteryPercent: pct, lowPowerMode: lpm) }
     if !(cl(120, true, 80, false) == 120 && cl(120, false, 80, false) == 60 && cl(120, false, 20, false) == 30 && cl(120, true, 100, true) == 30 && cl(60, true, nil, false) == 60 && cl(120, false, nil, false) == 60) { fail("frame governor: power ceilings wrong") }
   }
+
+  // 10c. Extension engine: a Chrome MV3 extension and a Firefox MV2 (.xpi) extension run end to end; ungranted host access is not given
+  do {
+    @MainActor final class Env: ExtensionEnvironment {
+      let win = WindowID(); var tab: WebKitTab?
+      func windowIDs() -> [WindowID] { [win] }
+      func focusedWindow() -> WindowID? { win }
+      func tabs(in window: WindowID) -> [WebKitTab] { tab.map { [$0] } ?? [] }
+      func selectedTab(in window: WindowID) -> WebKitTab? { tab }
+      func window(of tab: TabID) -> WindowID? { win }
+      func openTab(url: URL?, active: Bool, in window: WindowID?) -> WebKitTab? { nil }
+      func select(_ tab: TabID) {}
+      func close(_ tab: TabID) {}
+    }
+    let fm = FileManager.default
+    let base = URL(fileURLWithPath: "\(pagesDir!)/ext-\(UUID().uuidString)", isDirectory: true)
+    func mk(_ name: String, _ files: [String: String]) throws -> URL {
+      let d = base.appendingPathComponent(name, isDirectory: true); try fm.createDirectory(at: d, withIntermediateDirectories: true)
+      for (k, v) in files { try v.write(to: d.appendingPathComponent(k), atomically: true, encoding: .utf8) }
+      return d
+    }
+    let csMatch = #""content_scripts":[{"matches":["*://127.0.0.1/*"],"js":["cs.js"],"run_at":"document_idle"}]"#
+    let cr = try mk("cr", ["manifest.json": #"{"manifest_version":3,"name":"CrTest","version":"1","permissions":["storage"],"host_permissions":["*://127.0.0.1/*"],"background":{"service_worker":"bg.js"},\#(csMatch)}"#,
+      "bg.js": "chrome.runtime.onMessage.addListener((m, s, send) => { chrome.storage.local.set({ k: m.v }).then(() => send({ ok: true, echo: m.v + 1 })); return true; });",
+      "cs.js": "document.documentElement.setAttribute('data-cr0', '1'); chrome.runtime.sendMessage({ v: 41 }).then(r => document.documentElement.setAttribute('data-cr', String(r && r.echo)));"])
+    let ffDir = try mk("ff", ["manifest.json": #"{"manifest_version":2,"name":"FfTest","version":"1","browser_specific_settings":{"gecko":{"id":"fftest@example.org"}},"permissions":["storage","*://127.0.0.1/*"],"background":{"scripts":["bg.js"],"persistent":true},\#(csMatch)}"#,
+      "bg.js": "browser.runtime.onMessage.addListener(m => browser.storage.local.set({ k: m.v }).then(() => ({ ok: true, echo: m.v * 2 })));",
+      "cs.js": "browser.runtime.sendMessage({ v: 21 }).then(r => document.documentElement.setAttribute('data-ff', String(r && r.echo)));"])
+    let zp = Process(); zp.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); zp.currentDirectoryURL = ffDir; zp.arguments = ["-q", "-r", base.appendingPathComponent("ff.xpi").path, "."]
+    zp.standardOutput = FileHandle.nullDevice; try zp.run(); zp.waitUntilExit()
+    let nogrant = try mk("ng", ["manifest.json": #"{"manifest_version":3,"name":"NoGrant","version":"1","host_permissions":["*://127.0.0.1/*"],\#(csMatch)}"#,
+      "cs.js": "document.documentElement.setAttribute('data-ng', 'ran');"])
+    try "<html><head><title>exttest</title></head><body>hi</body></html>".write(toFile: "\(pagesDir!)/exttest.html", atomically: true, encoding: .utf8)
+    let root = base.appendingPathComponent("installed", isDirectory: true)
+    let host = ExtensionHost(registry: base.appendingPathComponent("extensions.json")); host.persistent = false; host.allowPrivate = true
+    let factory = WebKitTabFactory(persistent: false); factory.extensionHost = host
+    let env = Env(); host.environment = env
+    let profile = ProfileID()
+    _ = factory.configuration(for: profile)                                   // creates the profile's controller first, so installs load into it
+    let pCr = try ExtensionPackage.prepare(source: cr, into: root), pFf = try ExtensionPackage.prepare(source: base.appendingPathComponent("ff.xpi"), into: root), pNg = try ExtensionPackage.prepare(source: nogrant, into: root)
+    await host.install(pCr, permissions: ["storage"], hosts: ["*://127.0.0.1/*"])
+    await host.install(pFf, permissions: ["storage"], hosts: ["*://127.0.0.1/*"])
+    await host.install(pNg, permissions: [], hosts: [])
+    let t = factory.makeTab(id: TabID(), url: nil, profile: profile, restoredState: nil) as! WebKitTab
+    env.tab = t; let w = t.ensureLive()
+    let win = NSWindow(contentRect: .init(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false); win.isReleasedWhenClosed = false; win.contentView = w; win.orderFrontRegardless()
+    host.didOpen(window: env.win, profile: profile); host.didFocus(window: env.win, profile: profile); host.didOpen(t, profile: profile); t.isActive = true; host.didActivate(t, previous: nil, profile: profile)
+    try? await Task.sleep(nanoseconds: 2_000_000_000)
+    w.load(URLRequest(url: URL(string: "\(baseURL!)/exttest.html")!))
+    var attrs: [String: Any] = [:]
+    for _ in 0..<30 {
+      try? await Task.sleep(nanoseconds: 500_000_000)
+      let r = try? await w.evaluateJavaScript("JSON.stringify({cr: document.documentElement.getAttribute('data-cr'), ff: document.documentElement.getAttribute('data-ff'), ng: document.documentElement.getAttribute('data-ng'), cr0: document.documentElement.getAttribute('data-cr0'), loc: location.href, rs: document.readyState})")
+      attrs = ((r as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) } as? [String: Any]) ?? [:]
+      if attrs["cr"] is String && attrs["ff"] is String { break }
+    }
+    for l in host.status() { log("  - \(l)") }
+    log("  - page: \(attrs)")
+    log("- extensions: chrome=\(attrs["cr"] ?? "nil") firefox=\(attrs["ff"] ?? "nil") ungranted=\(attrs["ng"] ?? "nil") errors=\(host.loadErrors)")
+    if (attrs["cr"] as? String) != "42" { fail("extensions: Chrome MV3 content script -> service worker round trip failed (\(attrs["cr"] ?? "nil"))") }
+    if (attrs["ff"] as? String) != "42" { fail("extensions: Firefox MV2 browser.* promise round trip failed (\(attrs["ff"] ?? "nil"))") }
+    if attrs["ng"] is String { fail("extensions: an extension without granted host access still injected its content script") }
+    if !host.loadErrors.isEmpty { fail("extensions: load errors \(host.loadErrors)") }
+    win.close()
+  } catch { fail("extensions: \(error)") }
 
   // 11. Navigation security, popups, errors, downloads, capture — real WebKit
   do {

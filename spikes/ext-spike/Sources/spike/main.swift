@@ -39,7 +39,7 @@ Task { @MainActor in
     print("manifest v\(ext.manifestVersion) name=\(ext.displayName ?? "?") errors=\(ext.errors.count)")
     let ctx = WKWebExtensionContext(for: ext)
     // spike policy: grant only what the manifest declares (product: user prompt)
-    ctx.setPermissionStatus(.grantedExplicitly, for: url)
+    if ProcessInfo.processInfo.environment["NOURL"] != "1" { ctx.setPermissionStatus(.grantedExplicitly, for: url) }
     for p in ext.requestedPermissions { ctx.setPermissionStatus(.grantedExplicitly, for: p) }
     for m in ext.requestedPermissionMatchPatterns { ctx.setPermissionStatus(.grantedExplicitly, for: m) }
     let ctl = WKWebExtensionController(); let host = Host(); ctl.delegate = host
@@ -50,7 +50,7 @@ Task { @MainActor in
     win.contentView = wv; win.orderFront(nil)
     try ctl.load(ctx)
     ctl.didOpenWindow(w); ctl.didFocusWindow(w); ctl.didOpenTab(t); ctl.didActivateTab(t, previousActiveTab: nil)
-    do { try await ctx.loadBackgroundContent(); print("background loaded") } catch { print("background load error:", error) }
+    if ProcessInfo.processInfo.environment["BG"] == "1" { do { try await ctx.loadBackgroundContent(); print("background loaded") } catch { print("background load error:", error) } }
     try? await Task.sleep(nanoseconds: 1_500_000_000)
     wv.load(URLRequest(url: url))
     try? await Task.sleep(nanoseconds: 8_000_000_000)

@@ -100,6 +100,7 @@ public enum ExtensionPackage {
       }
       m["background"] = bg
     }
+    if ((m["description"] as? String) ?? "").isEmpty { m["description"] = (m["name"] as? String) ?? "Extension" }    // WebKit flags a missing description as an error
     if m["chrome_url_overrides"] != nil { notes.append("Replaces a browser page (new tab / history): not supported yet, ignored.") }
     if m["update_url"] != nil { m["update_url"] = nil; notes.append("Auto-update from the original store is disabled.") }
     let perms = ((m["permissions"] as? [Any]) ?? []).compactMap { $0 as? String } + ((m["optional_permissions"] as? [Any]) ?? []).compactMap { $0 as? String }
