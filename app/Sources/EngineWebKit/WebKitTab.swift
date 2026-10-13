@@ -111,6 +111,8 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
     let w = WKWebView(frame: .init(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
     w.navigationDelegate = self
     w.uiDelegate = self
+    w.appearance = PageAppearance.current.nsAppearance                // what pages see as prefers-color-scheme (nil = follow the system)
+    w.underPageBackgroundColor = .windowBackgroundColor                // no white flash behind a page in dark mode while it loads
     w.customUserAgent = BrowserIdentity.current.fullUserAgent       // Safari = nil (WebKit's own string + the Safari token set on the configuration)
     w.isInspectable = true                           // Web Inspector via Safari's Develop menu (devtools requirement); local user only
     webView = w

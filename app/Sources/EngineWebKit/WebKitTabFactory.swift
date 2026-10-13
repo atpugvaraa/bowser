@@ -90,6 +90,12 @@ public final class WebKitTabFactory: TabFactory {
     return "\(ProcessInfo.processInfo.operatingSystemVersion.majorVersion).0"
   }()
 
+  /// Change what colour scheme websites see, for every open tab (pages update live) and new tabs.
+  public func setPageAppearance(_ a: PageAppearance) {
+    PageAppearance.current = a
+    for t in liveTabs.allObjects { t.webView?.appearance = a.nsAppearance }
+  }
+
   /// Change the identity for every open tab (takes effect on each tab's next page load) and for tabs created from now on.
   public func setIdentity(_ id: BrowserIdentity) {
     BrowserIdentity.current = id

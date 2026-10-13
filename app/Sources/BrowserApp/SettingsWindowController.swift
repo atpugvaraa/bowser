@@ -39,6 +39,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   ]
   private let neverSleep = NSTextField()
   private let identity = NSPopUpButton()
+  private let appearance = NSPopUpButton()
 
   private func build() {
     let root = NSView(); window.contentView = root
@@ -59,6 +60,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     identity.target = self; identity.action = #selector(identityChanged(_:))
     let irow = NSStackView(views: [il, identity]); irow.spacing = 8; stack.addArrangedSubview(irow)
     let ih = NSTextField(wrappingLabelWithString: "Safari is honest and works best. Pick Chrome, Firefox or Edge only for a site that refuses Safari; it is a disguise, the engine stays WebKit. Applies from each tab's next page load."); ih.textColor = .secondaryLabelColor; ih.preferredMaxLayoutWidth = 420; stack.addArrangedSubview(ih)
+    let al = NSTextField(labelWithString: "Websites use:"); appearance.addItems(withTitles: PageAppearance.allCases.map(\.title))
+    appearance.target = self; appearance.action = #selector(appearanceChanged(_:))
+    let arow = NSStackView(views: [al, appearance]); arow.spacing = 8; stack.addArrangedSubview(arow)
+    let ah = NSTextField(wrappingLabelWithString: "Follow system makes websites start in your Mac's light or dark mode and switch with it. The others force it for pages only; the browser itself keeps following the system."); ah.textColor = .secondaryLabelColor; ah.preferredMaxLayoutWidth = 420; stack.addArrangedSubview(ah)
     stack.addArrangedSubview(blockEnabled)
     let bl = NSTextField(labelWithString: "Don't block on these sites (comma-separated):"); blockAllow.placeholderString = "shop.example"; blockAllow.widthAnchor.constraint(equalToConstant: 420).isActive = true
     stack.addArrangedSubview(bl); stack.addArrangedSubview(blockAllow)
@@ -70,6 +75,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     note.textColor = .secondaryLabelColor; note.preferredMaxLayoutWidth = 420; stack.addArrangedSubview(note)
   }
 
+  @objc private func appearanceChanged(_ p: NSPopUpButton) {
+    let all = PageAppearance.allCases; guard p.indexOfSelectedItem >= 0, p.indexOfSelectedItem < all.count else { return }
+    app.factory.setPageAppearance(all[p.indexOfSelectedItem])
+  }
   @objc private func identityChanged(_ p: NSPopUpButton) {
     let all = BrowserIdentity.allCases; guard p.indexOfSelectedItem >= 0, p.indexOfSelectedItem < all.count else { return }
     app.factory.setIdentity(all[p.indexOfSelectedItem])
@@ -77,6 +86,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private func minutes(_ s: TimeInterval) -> String { String(Int((s / 60).rounded())) }
   private func load() {
     identity.selectItem(at: BrowserIdentity.allCases.firstIndex(of: BrowserIdentity.current) ?? 0)
+    appearance.selectItem(at: PageAppearance.allCases.firstIndex(of: PageAppearance.current) ?? 0)
     let c = app.engine.policy
     enabled.state = c.enabled ? .on : .off
     fields["defaultGrace"]?.stringValue = minutes(c.defaultGrace); fields["minGrace"]?.stringValue = minutes(c.minGrace)

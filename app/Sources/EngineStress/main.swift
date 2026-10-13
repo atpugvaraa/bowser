@@ -516,6 +516,29 @@ Task { @MainActor in
     if !after.contains("Firefox/") { fail("identity: switching an open tab did not apply to its next load (\(after))") }
   }
 
+  // 10f. Page appearance: websites follow the system by default; forced light/dark applies live to open pages
+  do {
+    let saved = PageAppearance.current; defer { PageAppearance.current = saved }
+    let factory = WebKitTabFactory(persistent: false)
+    factory.setPageAppearance(.system)
+    let t = factory.makeTab(id: TabID(), url: nil, profile: ProfileID(), restoredState: nil) as! WebKitTab; let w = t.ensureLive()
+    let win = NSWindow(contentRect: .init(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false); win.isReleasedWhenClosed = false; win.contentView = w; win.orderFrontRegardless()
+    w.loadHTMLString("<html><body>x</body></html>", baseURL: URL(string: "http://localhost/")); _ = await waitUntil(15) { w.isLoading == false }
+    @MainActor func dark() async -> Bool? { (try? await w.evaluateJavaScript("matchMedia('(prefers-color-scheme: dark)').matches")) as? Bool }
+    let systemDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    let followed = await dark()
+    factory.setPageAppearance(.dark); try? await Task.sleep(nanoseconds: 400_000_000); let forcedDark = await dark()
+    factory.setPageAppearance(.light); try? await Task.sleep(nanoseconds: 400_000_000); let forcedLight = await dark()
+    factory.setPageAppearance(.system); try? await Task.sleep(nanoseconds: 400_000_000); let back = await dark()
+    log("- page appearance: system dark=\(systemDark) followed=\(String(describing: followed)) forcedDark=\(String(describing: forcedDark)) forcedLight=\(String(describing: forcedLight)) backToSystem=\(String(describing: back))")
+    if followed != systemDark { fail("appearance: pages do not follow the system (system dark \(systemDark), page \(String(describing: followed)))") }
+    if forcedDark != true { fail("appearance: always-dark did not reach the open page") }
+    if forcedLight != false { fail("appearance: always-light did not reach the open page") }
+    if back != systemDark { fail("appearance: switching back to Follow system did not restore the system scheme") }
+    if w.underPageBackgroundColor == nil { fail("appearance: no under-page background") }
+    win.close()
+  }
+
   // 11. Navigation security, popups, errors, downloads, capture — real WebKit
   do {
     try? """
