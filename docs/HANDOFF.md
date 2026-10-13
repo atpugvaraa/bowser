@@ -1,60 +1,57 @@
-# HANDOFF — read this first when restarting a chat (updated 2026-10-13)
+# HANDOFF — read this first when restarting a chat (updated 2026-10-13, ~15:30)
 
-Paste to a new Claude Code session: *"Read docs/HANDOFF.md, then docs/STATUS.md and docs/GOALS.md, and continue."*
+**Command to continue (paste into a new Claude Code session, or any coding agent run in /Users/kd/Developer/browser):**
+
+> Read docs/HANDOFF.md, then docs/STATUS.md and docs/GOALS.md, and continue with the NEXT TASKS section.
 
 ## What this is
-A personal macOS browser (this Mac only, never distributed) on the Safari engine (WKWebView): Arc-style Spaces, a very strong
-engine (adaptive hibernation, memory safety), modular. Repo: `github.com/kanavdhanda/browser` (private). SwiftPM package in `app/`
-(Swift 6, macOS 15.4+). Built/tested on a MacBook Pro M3 Pro 18 GB, macOS 27, Xcode 27 (license accepted by the user).
+A personal macOS browser (this Mac only, never distributed) on the Safari engine (WKWebView). Arc-style Spaces, a very strong engine (adaptive hibernation, memory safety), extensions, phone-QR passkeys, modular. Repo: `github.com/kanavdhanda/browser` (private; **local commits are ahead of the pushed `a750ac3`; push only when the owner asks**). SwiftPM package in `app/` (Swift 6, macOS 15.4+). MacBook Pro M3 Pro 18 GB, macOS 27.0.1, Xcode 27. Last commit when this was written: `88bf8ec`.
+Run the current build: `scripts/build-app.sh --release` creates `dist/Browser-<time>.app` (the build id is in About). Owner's own copy to open: the newest `dist/Browser-*.app`.
 
 ## Owner's rules (non-negotiable)
-- **Never delete files anywhere** (overwrite, don't `rm`; I broke this twice by `rm -f` on my own generated reports: don't).
-- No access to sensitive data elsewhere on the machine. Localhost-only servers (127.0.0.1). No AirPlay/Cast/mDNS scanning (public network). No tests that raise system permission dialogs unattended (mic/camera hung the harness once).
-- **Closing a tab or window sleeps/archives it, never destroys it.**
-- Priorities: 1 strong engine, 2 hibernation/archiving/resources, 3 extensions (Grammarly, Apple Passwords must work), 4 plain UI, 5 Spaces polish + Apple integration. Video (Netflix/Prime/YouTube) must keep working.
-- Process: nothing is committed without `scripts/gate.sh` passing AND an independent subagent review of each big chunk (`.claude/skills/scrutinize/SKILL.md`). Commit locally; push only when asked.
-- Be honest: say "not tested" rather than guess. Evidence goes in `docs/results/`.
+- **Never weaken macOS security** (no SIP/AMFI/boot-args/Gatekeeper/TCC tricks, no research into them; the permission classifier also blocks it). Find another way.
+- **No deleting files.** One exception was granted on 2026-10-13: deleting OLD BROWSER BUILDS in `dist/` (done). Anything else needs a fresh explicit request. Overwrite, never `rm`. (Also: overwriting a binary macOS already ran gets it SIGKILLed; each release build goes to a fresh `dist/Browser-<time>.app`.)
+- No access to sensitive data elsewhere on the machine (never read other apps' or Chrome's user data; throwaway profiles only). Localhost-only servers. No AirPlay/Cast/mDNS scanning (public network). Bluetooth scanning only while the passkey sheet is open. No tests that raise permission dialogs unattended.
+- **Closing a tab/window sleeps/archives it, never destroys it.**
+- Priorities: engine first; hibernation/archive/resources; extensions; **now: core UI (sidebar, profile spaces, Boosts) with low animation, must not slow page loading**; split view later.
+- Process: nothing committed without `scripts/gate.sh` passing (it is the pre-commit hook: secret scan, strict `swift build`, ~500 CoreChecks, UI self-test, media guard) AND an independent subagent review of each big chunk (`.claude/skills/scrutinize/SKILL.md`). No attribution lines in commit messages. Be honest: "not tested" beats a guess; evidence goes in `docs/results/`.
+- Ask the owner before big direction changes; they said "we do not move ahead without planning" for large steps.
 
-## State: engine complete and tested; see docs/STATUS.md for the honest per-feature table
-Done and measured: core model (spaces/tabs/windows/archive), SQLite store (schema v5, backup ring, corruption recovery), adaptive
-hibernation (usage-learned, pressure-aware, hard protections for media/forms/downloads/calls), WebKit adapter, downloads, JS dialogs,
-content blocking (native), window frame restore, **per-tab memory cap with 1 s watchdog** (hostile-page defense), Settings UI,
-plain AppKit UI, 426 unit checks + real-WebKit stress + UI self-test + media-capability guard in the gate.
-Measured: capabilities = Safari/Chrome (WASM SIMD/threads/4 GB, WebGL2, WebGPU, AudioWorklet, gamepad, pointer lock); JS/WASM speed = Safari;
-Godot 4.7.2 web editor runs (~115 fps, 1.6 GB); 30k-fish WebGL aquarium 46 fps = Safari 45 (Chrome 81: WebKit draw-call cost, not fixable by flags);
-300 tabs/60 live: 109 ms wake p50, 3.25 GB; sanitizers (ASan/TSan/UBSan) clean; `leaks`: nothing from our code (416 Apple LinkPresentation XPC); app memory flat over 480 cycles.
+## State (see docs/STATUS.md for the per-feature table)
+Done and verified: engine, store, hibernation, memory watchdog, content blocking, downloads, Settings; **clean power test (this browser == Safari)**; **adaptive frame governor** (power-aware, idle tiers); **extension engine** (Chrome + Firefox: folder/.crx/.xpi/.zip + store links with CRX3 signature / sha256 checks, explicit permission prompt, blocklist, per-profile; uBO Lite blocks on real sites); **phone-QR passkeys (FIDO hybrid client; owner confirmed it works with a real iPhone)**; **Safari identity by default + selectable Chrome/Firefox/Edge**; **light/dark for websites follows macOS (live) + force option**; **speed pass** (speculative cache revalidation, preconnect while typing; docs/results/speed-pass-20261013.md; loads comparable to Chrome, docs/results/load-compare-20261013.md and cache-warm-compare-20261013.md); camera/mic gated on entitlements; signing-ready build (docs/SIGNING.md); favicons in the tab list (empty square when a site has none); first-pass sidebar UI.
 
-## NOT done / needs the owner
-1. **Run the power + GPU comparison** (needs sudo): `sudo scripts/power-gpu.sh 60` -> `docs/results/power-*.md`.
-2. **Run the 500-tab soak** (hours, quiet Mac): `scripts/soak.sh 8 500 100`, then the baseline `scripts/soak.sh --safari 8 500`; compare the two CSVs in `docs/results/` (swap, WebContent/GPU memory growth per hour). Not yet run at 500 tabs / hours.
-3. Extensions: WKWebExtension host in `WebKitTabFactory`, popup/action UI, permission UI. Grammarly needs the owner's login. uBO Lite loads but did not block (cause unknown); native `WKContentRuleList` blocking works and is the ad-block path.
-4. Signing + entitlements (Xcode is ready): camera/mic (`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`, then flip `MediaDevicesEnabled` in `WebKitTabFactory`), passkeys (`com.apple.developer.web-browser.public-key-credential`), Handoff/iCloud (needs a developer account).
-5. Netflix 4K unverified (plan ceiling 1080p). Real casting untested (public network). MW2-in-browser reports = unofficial fan WASM port; not loaded.
-6. Backlog: draft saver for form input across a crash, private browsing, clear-history UI, bookmark folders, resource panel UI, tab drag-reorder, "page unresponsive" notice (a spinning page hangs only its own tab; host survives), process-sharing nuance for the memory cap (siblings in one process are shed together).
-7. Optional power idea (unmeasured): `PreferPageRenderingUpdatesNear60FPSEnabled=0` lifts light pages 60 -> ~120 fps but costs power; left at default. Measure with the power script before changing.
+## **UI status: the first-pass sidebar is NOT good enough (owner: "very very bad, not matching Arc") — top priority**
+What exists (`app/Sources/BrowserApp/BrowserWindowController.swift` `buildUI`, `SidebarViews.swift`, `FaviconStore.swift`): translucent sidebar with traffic lights, nav buttons + address field in the sidebar, space popup ("Main"), tab list (favicon chip + title, close on hover/selection), "New Tab" button, page shown as a rounded card inside a space-tinted frame (corners are PAINTED over the web view by `CardFrameOverlay`, never masked: masking a web view forces offscreen compositing and costs frame rate), light/dark tint from the space id (`SpacePalette`).
+Why it falls short (owner's verdict; specifics to confirm with them): does not look or behave like Arc. Missing: pinned/favorites area, space switcher chips with colours/icons at the bottom, per-space colour picker, space/profile indicator, compact density and spacing like Arc, hover states, drag to reorder, folders, command bar styling, proper top-of-sidebar layout. Ask the owner for screenshots / a short recording of their Arc setup and the 5 behaviours they use daily BEFORE redesigning.
+Design aids built in: `SELFTEST_SHOTS=<dir> scripts/ui-selftest.sh` writes `ui-light.png` / `ui-dark.png` of the real window (read them with an image viewer to review the design; web content is blank in the snapshot). `SELFTEST_FPS=<url> scripts/ui-selftest.sh` prints the page fps inside the real window (one run returned 0.08 fps, probably the window was occluded by other windows; re-run before trusting; the governor drops idle pages to half/quarter rate by design). Page-load A/B: `app/.build/out/Products/Debug/ExtLab bench-local <url> <n> [--plain]` and `bench <url>` (see scripts/chrome-load-bench.py for Chrome).
+Guardrails for UI work: no layer masking on web views, no per-frame work, simple low animation; after each UI step re-run the local load benchmark (`ExtLab bench-local http://127.0.0.1:<port>/lb.html 15`, product vs `--plain`, was 13 ms vs 16 ms) and the gate. Keep `addressField`, `extButton`, `rows`, menus and engine behaviour intact (the UI self-test drives them).
+
+## About Arc, Ghidra and reverse engineering (owner asked for this to be recorded)
+- The owner asked to copy Arc's exact features "using Ghidra and REA" and asked for instructions to continue that with another tool.
+- **Verified 2026-10-13:** Arc's Terms of Use (https://start.arc.net/terms-of-use) prohibit anyone who "decompiles, reverse engineers, or otherwise attempts to obtain the source code or underlying ideas" of the software, and prohibit derivative works. The assistant therefore did NOT analyse Arc's binary and did not write an Arc-specific Ghidra recipe. The project plan's own rule also applies: "REA/Ghidra output = understanding, independent implementation; no copied proprietary code/assets" (docs/PLAN.md, cross-cutting checks).
+- Whether to analyse Arc on their own is the owner's decision and responsibility, outside this repo's rules. General Ghidra documentation: https://ghidra-sre.org . Nothing from such analysis may be pasted into this project as code or assets.
+- **Legitimate ways to get the same information (use these):** (1) the owner's screenshots / screen recordings of Arc, measured frame by frame (spacing, radii, colours, hover states, animation timing); (2) the macOS Accessibility Inspector on the owner's own screen to see Arc's control layout (observation of the UI, not of the code); (3) Arc's public help pages, release notes and videos; (4) open-source Arc-like browsers, read as references (docs/research/010-open-source-references.md): **Nook** (GPL-3.0, WebKit/SwiftUI, managers for split view/peek/extensions/tweaks), **Ora** (GPL-3.0, WebKit/AppKit/SwiftUI, Sidebar/Tabs/Launcher folders, Vendor/SplitView), **Aura**, **Zen Browser** (MPL-2.0, Firefox base; best-documented behaviours: workspaces, split view, Glance, compact mode, Mods). GPL code may be read freely; do not copy it (the combined work would become GPL if ever distributed); implement independently.
+
+## NEXT TASKS (in order)
+1. **Redesign the sidebar/UI to match Arc's look and behaviour** (see "UI status"). Slice order: (a) layout and look with the owner's screenshots; (b) pinned tabs + favorites row (model already has `TabRecord.pinned`; engine needs pin/unpin + persistence), drag reorder, colours; (c) **profile spaces**: per-space colour/icon picker (needs a store schema bump, currently v5), clear profile marker (separate logins vs shared), bottom space switcher; (d) tab loading/behaviour polish (instant selection, loading indicator, sleeping-tab states); (e) **Boosts** (per-site user CSS/JS stored per space, injected as user scripts, simple editor + zapper; design in docs/research/009 and 010). Split view and peek later.
+2. Speed pass follow-ups (owner approved): measure battery/memory effect of preconnect; consider prefetch only if measured and opt-in.
+3. Extensions: run Dark Reader, Vimium, Bitwarden through `ExtLab` (`ExtLab chrome:<id>|firefox:<slug>|<dir> <url> <secs> --eval <js>`); Grammarly needs the owner's login; toolbar popups untried; `userScripts`/`offscreen` shims not built; per-space extension enablement.
+4. Passkeys follow-ups: conditional-UI (autofill) passkeys, iframe passkeys, account chooser; Touch ID local passkeys only if the owner asks.
+5. Certificate: the owner adds their Apple ID in Xcode (docs/SIGNING.md); then `scripts/build-app.sh` signs automatically. Mac-local passkeys / Apple Passwords stay blocked (needs Apple's entitlement; Apple's Passwords helper refuses non-approved browsers).
+6. Backlog: private browsing, clear-history UI, bookmark folders, resource panel UI, draft saver for forms across a crash, "page unresponsive" notice, Netflix 4K verify, auto-archive tabs by age (verify), accessibility pass (VoiceOver/keyboard), frame-governor power measurement (`sudo scripts/power-gpu.sh 60`), later modules (reader mode, page saving, notes).
 
 ## Map
-- `app/Sources/`: `BrowserCore` (model, URL/nav rules, error page) · `Lifecycle` (HibernationPolicy, LifecycleManager, memory watchdog) · `Persistence` (Store, SessionManager, UsageRecorder) · `Resources` (pressure, process memory) · `EngineCore` (BrowserEngine facade, settings) · `EngineWebKit` (WebKitTab, factory, downloads, feature flags) · `ContentBlocking` · `BrowserApp` (AppKit UI, SelfTest) · harnesses `CoreChecks`, `EngineStress`, `EngineScale`, `PolicySim`.
-- `scripts/`: `gate.sh` (the commit gate) · `stress.sh` · `scale.sh` · **`soak.sh`** · **`power-gpu.sh`** · `leaks-check.sh` (live `leaks` + cycle test) · `realsites.sh` (real heavy sites) · `media-check.sh` · `ui-selftest.sh` · `build-app.sh` · `testserver.py`.
-- `spikes/web-bench/`: `wb` harness (loads a URL, reports fps/memory/CPU, `--hostile`, `--flag Key=0/1`, `--after-load`), `aqproxy.py` (30k-fish aquarium proxy), `www/hostile/*.html` (memory/DOM/canvas/worker/popup bombs), `www/bench.html` (capability + benchmark page).
-- Docs: `GOALS.md` · `PLAN.md` · `SPEC.md` · `STATUS.md` (feature table) · `LEARNINGS.md` (all findings, read the 2026-10-13 section) · `RUNNING.md` · `ENGINE_NIGHT.md` · `architecture/*.md` · `research/001-004` · `results/` (evidence).
+- `app/Sources/`: `BrowserCore` (model, URL rules) · `Lifecycle` (hibernation, watchdog) · `Persistence` (SQLite store) · `Resources` · `EngineCore` (BrowserEngine facade) · `EngineWebKit` (WebKitTab, factory, ExtensionHost, PasskeyBridge, FrameGovernor, BrowserIdentity, PageAppearance, SpeedTuning) · `Extensions` (package loader, store downloader, CRX3 verifier) · `Hybrid` (CBOR, hybrid protocol, Noise, BLE, WebAuthn, simulator) · `ContentBlocking` · `BrowserApp` (UI: window controller, SidebarViews, FaviconStore, ExtensionsUI, PasskeyUI, Settings, SelfTest) · harnesses `CoreChecks`, `EngineStress`, `EngineScale`, `PolicySim`, `ExtLab`.
+- `scripts/`: `gate.sh` · `stress.sh` (real-WebKit stress incl. extensions, passkeys, identity, appearance, speed) · `ui-selftest.sh` · `build-app.sh [--release]` · `soak.sh` · `power-gpu.sh` · `chrome-load-bench.py` · `fg-js.sh` · `signing/` (entitlements) · `testserver.py`.
+- Docs: `GOALS.md`, `PLAN.md`, `STATUS.md`, `LEARNINGS.md` (read the 2026-10-13 sections), `SIGNING.md`, `features/*` (browser-identity, page-appearance), `research/005-010`, `results/*` (evidence).
 
 ## Build/test gotchas (hard-won)
-- After `swift build`, check the exit code before `swift run --skip-build` (a failed build silently runs the old binary). `pkill -f swift-build` before retrying stacked builds.
-- No `timeout` on macOS: use `perl -e 'alarm N; exec @ARGV'`. zsh does not word-split unquoted variables: use arrays.
-- Avoid tuple-destructuring in `guard let`, long `&&` chains of optionals and giant async closures (type-checker blowups).
-- Foreground commands time out at 10 min: use `run_in_background` + Monitor for long runs. Never `sleep` in a chain.
-- Another job on this Mac (`/Users/kd/Developer/revolve/...`) sometimes eats RAM/swap; it is not ours: don't touch it. The scale/soak harness refuses to start under pressure/swap by design.
-- Other browsers' tabs opened by test scripts stay open: tell the owner.
-
-## NEXT TASKS (state at 2026-10-13 13:20) — a fresh chat should start here
-Done since the last handoff: clean power test (this browser == Safari), adaptive frame governor, extension engine (Chrome+Firefox, store downloads, verified), phone-QR passkeys (simulated-phone verified), signing-ready build, release build (`scripts/build-app.sh --release`, copy in `dist/Browser.app`).
-Owner rules (hard): **never weaken macOS security** (no SIP/AMFI/boot-args, no research into it); no deleting files; no sensitive data outside the repo; no AirPlay/mDNS scanning; Bluetooth scanning only while the passkey sheet is open.
-1. **Real-iPhone test of phone passkeys** (owner): open Browser.app, go to a passkey demo site, choose passkey, scan the QR with the iPhone camera. Allow Bluetooth when asked. If it fails, the exact point of failure (no advert / tunnel / handshake / phone rejects) is what to debug; see docs/research/008-phone-qr-passkeys-plan.md. Spec mismatches are the likely cause.
-2. **Certificate**: owner adds Apple ID in Xcode (docs/SIGNING.md); then `scripts/build-app.sh` signs automatically. Passkey entitlement route needs the paid program + Apple approval.
-3. Extension matrix still to run with ExtLab: Dark Reader, Vimium, Bitwarden, Grammarly (owner login). Toolbar popups untried. Shims for `userScripts`/`offscreen` not built.
-4. Passkey follow-ups: conditional-UI autofill, iframe passkeys, show user name chooser; Touch ID local passkeys (Secure Enclave verified to work unsigned) if the owner wants them.
-5. Backlog: Netflix 4K verify, real casting, draft saver, private browsing, clear-history UI, bookmark folders, resource panel UI, tab drag-reorder, per-space extension enablement, frame-governor power measurement (powermetrics).
-
-## Where we stopped (2026-10-13 ~09:10)
-Last commit: per-tab memory cap + hostile/GPU/leak findings (`fd92702`), then power/soak scripts + this handoff. The autorun /loop was stopped at the owner's request.
+- Check the exit code of `swift build` before `swift run --skip-build`. Kill stacked builds with `pkill -f swift-build`.
+- No `timeout` on macOS: `perl -e 'alarm N; exec @ARGV'`. zsh does not word-split unquoted variables.
+- Avoid tuple destructuring in `guard let`, long optional `&&` chains and giant async closures (type-checker blowups). Heredoc escaping: in a quoted heredoc `\(` stays literal, so write Swift `\(` not `\\(`.
+- Foreground commands time out at 10 min: use background runs. Never chain `sleep`.
+- The gate builds with warnings-as-errors and Swift 6 concurrency checks (a plain `swift build` can pass while the gate fails: e.g. deprecated `WKProcessPool`, `[weak self]` captures inside `Task`). Release builds: `swift build -c release --product BrowserApp` only (CoreChecks needs debug hooks).
+- WebKit extensions: private/non-persistent data stores are "private browsing" for extensions (set `defaultWebsiteDataStore`, `hasAccessToPrivateData` only in tests); never call `loadBackgroundContent()` (crashes on 27.0.1). WebKit returns the FIRST data store made for an identifier in a process.
+- Timing-sensitive tests: passkey page test needs the window to stay key; the UI self-test "window frame remembered" flaked once; both pass on re-run.
+- Another job on this Mac (`/Users/kd/Developer/revolve/...`) sometimes eats RAM; not ours, do not touch.
+- Scratch/benchmark helper scripts used this session live in `/tmp/claude-501/...` and the session scratchpad (not in the repo); `scripts/chrome-load-bench.py` is the one kept.

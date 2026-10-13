@@ -1,3 +1,5 @@
+# Chrome cold/warm page-load timing via the DevTools protocol, throwaway profile only (never touches your Chrome data).
+# usage: python3 -I scripts/chrome-load-bench.py <url> <runs> [warm]   (warm = reuse one temp profile across runs; needs Google Chrome installed)
 import socket, json, base64, os, struct, subprocess, sys, time, urllib.request, tempfile, statistics
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 class WS:
