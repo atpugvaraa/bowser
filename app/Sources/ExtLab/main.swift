@@ -29,8 +29,9 @@ if args.count >= 3, args[1] == "bench" {
       for (i, a) in args.enumerated() where a == "--flag" && i + 1 < args.count { let kv = args[i + 1].split(separator: "="); if kv.count == 2 { print("flag \(kv[0])=\(kv[1]) applied=\(WebKitFeatureFlags.set(String(kv[0]), kv[1] == "1", for: c.preferences))") } }
       w = WKWebView(frame: .init(x: 0, y: 0, width: 1280, height: 800), configuration: c)
     } else {
-      let factory = WebKitTabFactory(persistent: false); if args.contains("--ext") { factory.extensionHost = ExtensionHost(registry: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("b-\(UUID().uuidString).json")) }
-      let t = factory.makeTab(id: TabID(), url: nil, profile: ProfileID(), restoredState: nil) as! WebKitTab
+      let persist = args.contains("--persistent")           // one fixed throwaway profile, reused across runs, to measure cache-warm repeat visits
+      let factory = WebKitTabFactory(persistent: persist); if args.contains("--ext") { factory.extensionHost = ExtensionHost(registry: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("b-\(UUID().uuidString).json")) }
+      let t = factory.makeTab(id: TabID(), url: nil, profile: ProfileID(UUID(uuidString: "00000000-0000-4000-8000-00000000BE4C")!), restoredState: nil) as! WebKitTab
       keep = (factory, t); w = t.ensureLive()
     }
     let win = NSWindow(contentRect: .init(x: 0, y: 0, width: 1280, height: 800), styleMask: [.titled], backing: .buffered, defer: false); win.isReleasedWhenClosed = false; win.contentView = w; win.orderFrontRegardless()
