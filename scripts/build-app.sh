@@ -26,4 +26,7 @@ else
   codesign --force --options runtime --entitlements "$ENT" -s - "$A" >/dev/null 2>&1; echo "ad-hoc signed (hardened runtime + camera/mic entitlements; macOS will re-ask permission after every rebuild) ; no identity in the keychain: see docs/SIGNING.md)" >&2
 fi
 codesign -dv "$A" 2>&1 | grep -E "Identifier|flags|Authority" >&2
+if [[ "$CFG" == "Release" ]]; then   # a fresh copy each time: overwriting a binary macOS has already run makes the kernel kill it (and nothing is ever deleted)
+  D="$R/dist/Browser-$(date +%m%d-%H%M%S).app"; mkdir -p "$R/dist" && cp -R "$A" "$D" && echo "release copy: $D" >&2 && echo "$D" && exit 0
+fi
 echo "$A"
