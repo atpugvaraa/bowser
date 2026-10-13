@@ -4,6 +4,7 @@ import EngineCore
 import Foundation
 import AppKit
 import IOKit.ps
+import Security
 import WebKit
 
 /// Builds WebKit tabs. One WKWebViewConfiguration (and therefore one data store: cookies, logins, storage) per profile, shared by
@@ -65,12 +66,22 @@ public final class WebKitTabFactory: TabFactory {
     for t in liveTabs.allObjects { t.webView?.evaluateJavaScript(g.updateJS, completionHandler: nil) }
   }
 
+  /// Camera/microphone are switched on ONLY when this process is signed with the capture entitlements AND has the usage strings:
+  /// without them macOS can hang or kill the app on first access (see LEARNINGS 2026-10-12).
+  public static let canCapture: Bool = {
+    guard let task = SecTaskCreateFromSelf(nil) else { return false }
+    func has(_ e: String) -> Bool { (SecTaskCopyValueForEntitlement(task, e as CFString, nil) as? Bool) == true }
+    let info = Bundle.main.infoDictionary ?? [:]
+    return has("com.apple.security.device.camera") && has("com.apple.security.device.audio-input") && info["NSCameraUsageDescription"] != nil && info["NSMicrophoneUsageDescription"] != nil
+  }()
+  /// Asked when a page wants the camera/microphone; nil = always deny.
+  public var captureHandler: ((_ host: String, _ camera: Bool, _ microphone: Bool) async -> Bool)?
+
   public func configuration(for profile: ProfileID) -> WKWebViewConfiguration {
     if let c = configs[profile] { return c }
     let c = WKWebViewConfiguration()
     c.websiteDataStore = persistent ? WKWebsiteDataStore(forIdentifier: profile.raw) : .nonPersistent()
-    // TODO(signed-app phase): enable `WebKitFeatureFlags.set("MediaDevicesEnabled", true, for: c.preferences)` for calls/meetings, ONLY together with
-    // NSCameraUsageDescription / NSMicrophoneUsageDescription + entitlements; without them macOS can hang or terminate the app on access.
+    if Self.canCapture { WebKitFeatureFlags.set("MediaDevicesEnabled", true, for: c.preferences) }       // calls/meetings: only when signed with the entitlements + usage strings
     if governor.enabled && (NSScreen.main?.maximumFramesPerSecond ?? 60) > 60 {                 // WebKit caps pages near 60 fps unless told not to; the governor owns the ceiling instead
       WebKitFeatureFlags.set("PreferPageRenderingUpdatesNear60FPSEnabled", false, for: c.preferences)
     }
@@ -85,6 +96,7 @@ public final class WebKitTabFactory: TabFactory {
   public func makeTab(id: TabID, url: URL?, profile: ProfileID, restoredState: Data?) -> any EngineTab {
     let t = WebKitTab(id: id, url: url, configuration: configuration(for: profile))
     t.restore(state: restoredState); liveTabs.add(t)
+    t.decideCapture = { [weak self] h, c, m in await self?.captureHandler?(h, c, m) ?? false }
     t.onOpenURL = { [weak self] u in self?.linkOpenHandler?(id, u) }
     t.onOpenExternally = { [weak self] u in self?.externalOpenHandler?(u) }
     t.onDownload = { [weak self] d in self?.downloads.adopt(d) }

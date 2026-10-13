@@ -60,6 +60,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     factory.extensionHost = host
     extensions = ExtensionsUI(app: self, host: host, root: dir.appendingPathComponent("extensions"))
     factory.externalOpenHandler = { NSWorkspace.shared.open($0) }
+    var captureAllowed = Set<String>()                      // this session only; there is no UI to revoke a permanent grant yet
+    factory.captureHandler = { host, cam, mic in
+      let what = cam && mic ? "camera and microphone" : cam ? "camera" : "microphone"
+      if captureAllowed.contains(host + what) { return true }
+      let a = NSAlert(); a.messageText = "Allow \(host) to use your \(what)?"; a.informativeText = "Until you quit the browser. You can say no and the site keeps working without it."
+      a.addButton(withTitle: "Allow"); a.addButton(withTitle: "Don't Allow")
+      let ok = a.runModal() == .alertFirstButtonReturn; if ok { captureAllowed.insert(host + what) }; return ok
+    }
     blocking = EngineSettings.loadBlocking(from: session)
     do { try await factory.prepareContentBlocking(blocking, storeURL: dir.appendingPathComponent("rulelists")) }
     catch { blocking.enabled = false; NSLog("content blocking unavailable: \(error)") }       // never block launch because of a list problem
