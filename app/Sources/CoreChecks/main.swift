@@ -4,6 +4,7 @@ import Lifecycle
 import Persistence
 import ContentBlocking
 import EngineCore
+import Extensions
 import Resources
 import SQLite3
 
@@ -1149,6 +1150,64 @@ do {
   u.tabMemoryCapMB = Int.max; check(u.tabMemoryCapBytes(physical: 18 * GB) == 131_072 << 20, "mem cap: an unvalidated huge value cannot overflow")
   let act = FakeTab(); act.mem = 2000 << 20; lm.register(act, host: "y.test"); lm.activate(act.id)
   check(lm.memoryWatchdog(physical: 18 * GB) == [act.id], "mem watchdog: the focused tab is protected from sleep but NOT from the memory cap")
+}
+
+// 35. extension packages (Chrome/Firefox loader + manifest normaliser)
+do {
+  let fm = FileManager.default
+  let base = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("extpkg-\(UUID().uuidString)")
+  func mk(_ name: String, _ manifest: String, extra: [String: String] = [:]) throws -> URL {
+    let d = base.appendingPathComponent(name, isDirectory: true); try fm.createDirectory(at: d, withIntermediateDirectories: true)
+    try manifest.write(to: d.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+    for (k, v) in extra { try v.write(to: d.appendingPathComponent(k), atomically: true, encoding: .utf8) }
+    return d
+  }
+  func zip(_ dir: URL, _ out: URL) throws {
+    let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); p.currentDirectoryURL = dir; p.arguments = ["-q", "-r", out.path, "."]
+    p.standardOutput = FileHandle.nullDevice; try p.run(); p.waitUntilExit()
+  }
+  let root = base.appendingPathComponent("installed", isDirectory: true)
+  do {
+    let ff = try mk("ff", #"{"manifest_version":2,"name":"FF","version":"1.2","browser_specific_settings":{"gecko":{"id":"ff@example.org"}},"background":{"scripts":["b.js"],"persistent":true},"permissions":["tabs","downloads","https://*.example.com/*"],"update_url":"https://x"}"#, extra: ["b.js": "1"])
+    let xpi = base.appendingPathComponent("ff.xpi"); try zip(ff, xpi)
+    let r = try ExtensionPackage.prepare(source: xpi, into: root)
+    check(r.id == "ff@example.org" && r.isFirefox && r.manifestVersion == 2, "ext: Firefox .xpi installs under its gecko id")
+    let m = try JSONSerialization.jsonObject(with: Data(contentsOf: r.directory.appendingPathComponent("manifest.json"))) as! [String: Any]
+    check((m["background"] as? [String: Any])?["persistent"] as? Bool == false, "ext: MV2 persistent background becomes an event page")
+    check(m["browser_specific_settings"] == nil && m["update_url"] == nil, "ext: Gecko settings and update_url are dropped")
+    check(r.permissions.sorted() == ["downloads", "tabs"] && r.hostPatterns == ["https://*.example.com/*"], "ext: API permissions and host patterns are separated")
+    check(r.notes.contains { $0.contains("downloads") } && fm.fileExists(atPath: r.directory.appendingPathComponent("b.js").path), "ext: unsupported APIs are reported; files are copied")
+  } catch { check(false, "ext: xpi install threw \(error)") }
+  do {
+    let cr = try mk("cr", #"{"manifest_version":3,"name":"CR","version":"0.5","background":{"service_worker":"sw.js","scripts":["sw.js"]},"host_permissions":["<all_urls>"]}"#, extra: ["sw.js": "1"])
+    let z = base.appendingPathComponent("cr.zip"); try zip(cr, z)
+    let zd = try Data(contentsOf: z)
+    var crx3 = Data("Cr24".utf8); crx3.append(contentsOf: [3, 0, 0, 0, 5, 0, 0, 0, 9, 9, 9, 9, 9]); crx3.append(zd)
+    var crx2 = Data("Cr24".utf8); crx2.append(contentsOf: [2, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 1, 1, 2, 2, 2]); crx2.append(zd)
+    check((try? ExtensionPackage.zipData(fromCRX: crx3)) == zd && (try? ExtensionPackage.zipData(fromCRX: crx2)) == zd, "ext: CRX2 and CRX3 headers are stripped exactly")
+    let crxFile = base.appendingPathComponent("cr.crx"); try crx3.write(to: crxFile)
+    let r = try ExtensionPackage.prepare(source: crxFile, into: root)
+    check(r.id.hasPrefix("ext-") && !r.isFirefox && r.hostPatterns == ["<all_urls>"], "ext: a Chrome .crx gets a stable derived id and host access is listed")
+    let again = try ExtensionPackage.prepare(source: crxFile, into: root)
+    check(again.id == r.id && again.directory == r.directory, "ext: installing the same package twice is idempotent")
+    let m = try JSONSerialization.jsonObject(with: Data(contentsOf: r.directory.appendingPathComponent("manifest.json"))) as! [String: Any]
+    check((m["background"] as? [String: Any])?["scripts"] == nil, "ext: MV3 with both service_worker and scripts keeps only the worker")
+    let folder = try ExtensionPackage.prepare(source: cr, into: root)
+    check(folder.name == "CR" && folder.id.hasPrefix("ext-"), "ext: an unpacked folder installs too")
+  } catch { check(false, "ext: chrome install threw \(error)") }
+  check((try? ExtensionPackage.zipData(fromCRX: Data("Cr24".utf8) + Data([9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))) == nil, "ext: an unknown CRX version is refused")
+  check((try? ExtensionPackage.zipData(fromCRX: Data("Cr24".utf8) + Data([3, 0, 0, 0, 200, 0, 0, 0]))) == nil, "ext: a truncated CRX is refused")
+  do {
+    let evil = base.appendingPathComponent("evil.zip")
+    let py = Process(); py.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+    py.arguments = ["-I", "-c", "import zipfile,sys\nz=zipfile.ZipFile(sys.argv[1],'w'); z.writestr('manifest.json','{}'); z.writestr('../escape.txt','x'); z.close()", evil.path]
+    try py.run(); py.waitUntilExit()
+    do { _ = try ExtensionPackage.prepare(source: evil, into: root); check(false, "ext: a path-escaping zip entry must be refused") }
+    catch let e as ExtensionPackage.PackageError { if case .unsafeEntry = e { check(true, "ext: zip-slip entry is refused") } else { check(false, "ext: wrong error \(e)") } }
+    check(!fm.fileExists(atPath: base.appendingPathComponent("escape.txt").path), "ext: nothing was written outside the install folder")
+  } catch { check(false, "ext: zip-slip fixture failed \(error)") }
+  do { _ = try ExtensionPackage.prepare(source: base.appendingPathComponent("nope.xpi"), into: root); check(false, "ext: missing file") } catch { check(true, "ext: a missing package is an error") }
+  do { let bad = try mk("bad", "{not json"); _ = try ExtensionPackage.prepare(source: bad, into: root); check(false, "ext: bad manifest accepted") } catch { check(true, "ext: a malformed manifest is an error, not a crash") }
 }
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

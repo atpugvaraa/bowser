@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
   name: "Browser",
   platforms: [.macOS("15.4")],
-  products: [.library(name: "BrowserCore", targets: ["BrowserCore"]), .library(name: "Lifecycle", targets: ["Lifecycle"]), .library(name: "Persistence", targets: ["Persistence"]), .library(name: "EngineWebKit", targets: ["EngineWebKit"]), .library(name: "Resources", targets: ["Resources"]), .library(name: "EngineCore", targets: ["EngineCore"]), .library(name: "ContentBlocking", targets: ["ContentBlocking"])],
+  products: [.library(name: "BrowserCore", targets: ["BrowserCore"]), .library(name: "Lifecycle", targets: ["Lifecycle"]), .library(name: "Persistence", targets: ["Persistence"]), .library(name: "EngineWebKit", targets: ["EngineWebKit"]), .library(name: "Resources", targets: ["Resources"]), .library(name: "EngineCore", targets: ["EngineCore"]), .library(name: "ContentBlocking", targets: ["ContentBlocking"]), .library(name: "Extensions", targets: ["Extensions"])],
   targets: [
     .target(name: "BrowserCore"),
     .target(name: "Lifecycle", dependencies: ["BrowserCore"]),
@@ -14,10 +14,11 @@ let package = Package(
     .target(name: "Resources", dependencies: ["BrowserCore"]),
     .target(name: "EngineCore", dependencies: ["BrowserCore", "Lifecycle", "Persistence", "ContentBlocking"]),
     .target(name: "ContentBlocking"),
+    .target(name: "Extensions"),
     .executableTarget(name: "EngineStress", dependencies: ["BrowserCore", "Lifecycle", "EngineWebKit", "EngineCore", "Persistence", "ContentBlocking"]),
     .executableTarget(name: "BrowserApp", dependencies: ["BrowserCore", "Lifecycle", "Persistence", "Resources", "EngineCore", "EngineWebKit", "ContentBlocking"], swiftSettings: [.swiftLanguageMode(.v5)]),
     .executableTarget(name: "PolicySim", dependencies: ["BrowserCore", "Lifecycle"]),
     .executableTarget(name: "EngineScale", dependencies: ["BrowserCore", "Lifecycle", "EngineWebKit", "Persistence", "Resources"]),
-    .executableTarget(name: "CoreChecks", dependencies: ["BrowserCore", "Lifecycle", "Persistence", "Resources", "EngineCore", "ContentBlocking"]),
+    .executableTarget(name: "CoreChecks", dependencies: ["Extensions", "BrowserCore", "Lifecycle", "Persistence", "Resources", "EngineCore", "ContentBlocking"]),
   ]
 )

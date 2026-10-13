@@ -2,6 +2,8 @@ import BrowserCore
 import ContentBlocking
 import EngineCore
 import Foundation
+import IOKit.ps
+import IOKit.pwr_mgt
 import WebKit
 
 /// Builds WebKit tabs. One WKWebViewConfiguration (and therefore one data store: cookies, logins, storage) per profile, shared by
@@ -35,12 +37,23 @@ public final class WebKitTabFactory: TabFactory {
   }
   public init(persistent: Bool = true, downloads: DownloadCoordinator = DownloadCoordinator()) { self.persistent = persistent; self.downloads = downloads }
 
+  /// UserDefaults `highFrameRate`: "on" / "off" / "auto" (default: on while on AC power, off on battery; decided when a profile's web views are first made).
+  /// Measured (docs/results/power-20261013-105503.md, LEARNINGS): the 60 fps cap off doubles fps on light WebGL pages for about +3% WebContent CPU.
+  static func wantsHighFrameRate() -> Bool {
+    switch UserDefaults.standard.string(forKey: "highFrameRate") {
+    case "on": return true
+    case "off": return false
+    default: return IOPSGetProvidingPowerSourceType(nil)?.takeRetainedValue() as String? == kIOPMACPowerKey
+    }
+  }
+
   public func configuration(for profile: ProfileID) -> WKWebViewConfiguration {
     if let c = configs[profile] { return c }
     let c = WKWebViewConfiguration()
     c.websiteDataStore = persistent ? WKWebsiteDataStore(forIdentifier: profile.raw) : .nonPersistent()
     // TODO(signed-app phase): enable `WebKitFeatureFlags.set("MediaDevicesEnabled", true, for: c.preferences)` for calls/meetings, ONLY together with
     // NSCameraUsageDescription / NSMicrophoneUsageDescription + entitlements; without them macOS can hang or terminate the app on access.
+    if Self.wantsHighFrameRate() { WebKitFeatureFlags.set("PreferPageRenderingUpdatesNear60FPSEnabled", false, for: c.preferences) }   // lets 120 Hz pages run at 120 fps
     c.preferences.isElementFullscreenEnabled = true              // the player's fullscreen button (YouTube, Netflix, Prime) does nothing without this
     if let l = blockingList { c.userContentController.add(l) }
     configs[profile] = c

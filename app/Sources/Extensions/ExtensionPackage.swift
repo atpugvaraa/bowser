@@ -1,0 +1,152 @@
+import CryptoKit
+import Foundation
+
+/// Turns a Chrome or Firefox extension (folder, .zip, .crx, .xpi) into a plain unpacked folder the WebKit extension engine can load,
+/// and rewrites its manifest where Firefox/MV2 conventions differ from what WebKit accepts. Pure Foundation: no WebKit, no UI.
+/// Nothing is ever deleted: a package is unpacked into `<root>/<id>/<version>/` and its original is kept beside it.
+public enum ExtensionPackage {
+  public enum PackageError: Error, Equatable {
+    case notFound, badCRX(String), unsafeEntry(String), unzipFailed(Int32), noManifest, badManifest(String)
+  }
+  public struct Prepared: Equatable {
+    public var id: String
+    public var name: String
+    public var version: String
+    public var manifestVersion: Int
+    public var directory: URL
+    public var isFirefox: Bool
+    public var notes: [String]          // what was rewritten or is unsupported; shown to the user at install time
+    public var permissions: [String]    // API permissions requested (not host patterns)
+    public var hostPatterns: [String]
+  }
+
+  /// API permissions WebKit's extension engine lacks natively; the shim layer fills these in (or the extension is told clearly).
+  public static let needsShim: Set<String> = ["downloads", "history", "bookmarks", "offscreen", "userScripts", "nativeMessaging", "webRequestBlocking", "webRequest", "contextMenus", "commands", "proxy", "tabGroups"]
+
+  // MARK: install
+  public static func prepare(source: URL, into root: URL) throws -> Prepared {
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDir) else { throw PackageError.notFound }
+    let fm = FileManager.default
+    var unpacked = source
+    var packageHash = ""
+    if !isDir.boolValue {
+      var data = try Data(contentsOf: source)
+      packageHash = digest(data)
+      if data.starts(with: Array("Cr24".utf8)) { data = try zipData(fromCRX: data) }
+      let stage = root.appendingPathComponent(".staging", isDirectory: true).appendingPathComponent(packageHash, isDirectory: true)
+      try fm.createDirectory(at: stage, withIntermediateDirectories: true)
+      let zip = stage.appendingPathComponent("package.zip")
+      try data.write(to: zip, options: .atomic)
+      unpacked = stage.appendingPathComponent("files", isDirectory: true)
+      if !fm.fileExists(atPath: unpacked.appendingPathComponent("manifest.json").path) { try unzip(zip, into: unpacked) }
+    }
+    let manifestURL = unpacked.appendingPathComponent("manifest.json")
+    guard let raw = try? Data(contentsOf: manifestURL) else { throw PackageError.noManifest }
+    guard var m = (try? JSONSerialization.jsonObject(with: stripBOM(raw))) as? [String: Any] else { throw PackageError.badManifest("not a JSON object") }
+    let n = normalize(&m)
+    guard let name = m["name"] as? String, let version = m["version"] as? String else { throw PackageError.badManifest("missing name or version") }
+    let mv = (m["manifest_version"] as? Int) ?? 2
+    let id = n.geckoID ?? "ext-" + String((packageHash.isEmpty ? digest(raw) : packageHash).prefix(16))
+    let dest = root.appendingPathComponent(safeComponent(id), isDirectory: true).appendingPathComponent(safeComponent(version), isDirectory: true)
+    try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+    if unpacked.standardizedFileURL != dest.standardizedFileURL { try copyTree(from: unpacked, to: dest) }
+    let out = try JSONSerialization.data(withJSONObject: m, options: [.prettyPrinted, .sortedKeys])
+    try out.write(to: dest.appendingPathComponent("manifest.json"), options: .atomic)
+    let perms = ((m["permissions"] as? [Any]) ?? []).compactMap { $0 as? String }
+    let hosts = ((m["host_permissions"] as? [Any]) ?? []).compactMap { $0 as? String } + perms.filter(isHostPattern)
+    return Prepared(id: id, name: name, version: version, manifestVersion: mv, directory: dest, isFirefox: n.geckoID != nil || n.firefoxKeys,
+                    notes: n.notes, permissions: perms.filter { !isHostPattern($0) }, hostPatterns: hosts)
+  }
+
+  // MARK: manifest normalisation
+  /// Rewrites `m` in place. Idempotent.
+  @discardableResult public static func normalize(_ m: inout [String: Any]) -> (geckoID: String?, firefoxKeys: Bool, notes: [String]) {
+    var notes: [String] = []
+    var gecko: String?
+    var ff = false
+    for key in ["browser_specific_settings", "applications"] {
+      guard let bs = m[key] as? [String: Any] else { continue }
+      ff = true
+      if let g = bs["gecko"] as? [String: Any], let id = g["id"] as? String, gecko == nil { gecko = id }
+      m[key] = nil
+    }
+    if ff { notes.append("Firefox extension: Gecko-specific settings were ignored.") }
+    let mv = (m["manifest_version"] as? Int) ?? 2
+    if var bg = m["background"] as? [String: Any] {
+      if mv == 2, bg["persistent"] as? Bool != false {
+        bg["persistent"] = false
+        notes.append("MV2 persistent background converted to an event page (it sleeps when idle; saves power). Extensions that keep state in memory may misbehave.")
+      }
+      if mv == 3, bg["service_worker"] != nil, bg["scripts"] != nil {     // Chrome and Firefox both accept this form; WebKit wants one
+        bg["scripts"] = nil
+        notes.append("Both service_worker and scripts were declared; using the service worker.")
+      }
+      m["background"] = bg
+    }
+    if m["chrome_url_overrides"] != nil { notes.append("Replaces a browser page (new tab / history): not supported yet, ignored.") }
+    if m["update_url"] != nil { m["update_url"] = nil; notes.append("Auto-update from the original store is disabled.") }
+    let perms = ((m["permissions"] as? [Any]) ?? []).compactMap { $0 as? String } + ((m["optional_permissions"] as? [Any]) ?? []).compactMap { $0 as? String }
+    let missing = perms.filter { needsShim.contains($0) }.sorted()
+    if !missing.isEmpty { notes.append("Uses APIs WebKit does not provide natively (\(Set(missing).sorted().joined(separator: ", "))); the compatibility layer supplies those it can.") }
+    return (gecko, ff, notes)
+  }
+
+  public static func isHostPattern(_ s: String) -> Bool { s == "<all_urls>" || s.contains("://") || s.hasPrefix("*:") }
+
+  // MARK: CRX / zip
+  /// Strips the CRX2/CRX3 header and returns the zip payload.
+  public static func zipData(fromCRX d: Data) throws -> Data {
+    func u32(_ at: Int) -> Int? { d.count >= at + 4 ? Int(d[at]) | Int(d[at + 1]) << 8 | Int(d[at + 2]) << 16 | Int(d[at + 3]) << 24 : nil }
+    guard d.count > 12, d.starts(with: Array("Cr24".utf8)), let ver = u32(4) else { throw PackageError.badCRX("not a CRX") }
+    let start: Int
+    switch ver {
+    case 2: guard let pk = u32(8), let sig = u32(12) else { throw PackageError.badCRX("short header") }; start = 16 + pk + sig
+    case 3: guard let hl = u32(8) else { throw PackageError.badCRX("short header") }; start = 12 + hl
+    default: throw PackageError.badCRX("unknown CRX version \(ver)")
+    }
+    guard start > 0, start < d.count, d[start...].starts(with: [0x50, 0x4B]) else { throw PackageError.badCRX("no zip after header") }
+    return d.subdata(in: start..<d.count)
+  }
+
+  /// Unzips with the system `unzip` after checking every entry name (no absolute paths, no `..`: zip-slip).
+  static func unzip(_ zip: URL, into dest: URL) throws {
+    let list = try run("/usr/bin/unzip", ["-Z1", zip.path])
+    for line in list.out.split(separator: "\n") {
+      let e = String(line)
+      if e.hasPrefix("/") || e.split(separator: "/").contains("..") || e.contains("\0") { throw PackageError.unsafeEntry(e) }
+    }
+    try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+    let r = try run("/usr/bin/unzip", ["-q", "-o", zip.path, "-d", dest.path])
+    guard r.status == 0 else { throw PackageError.unzipFailed(r.status) }
+    // zips made on other systems sometimes wrap everything in one top folder: unwrap by pointing at it
+    if !FileManager.default.fileExists(atPath: dest.appendingPathComponent("manifest.json").path) {
+      let kids = (try? FileManager.default.contentsOfDirectory(atPath: dest.path).filter { !$0.hasPrefix("__MACOSX") && !$0.hasPrefix(".") }) ?? []
+      if kids.count == 1, FileManager.default.fileExists(atPath: dest.appendingPathComponent(kids[0]).appendingPathComponent("manifest.json").path) {
+        try copyTree(from: dest.appendingPathComponent(kids[0]), to: dest)
+      }
+    }
+  }
+
+  static func copyTree(from: URL, to: URL) throws {
+    let fm = FileManager.default
+    for item in try fm.contentsOfDirectory(at: from, includingPropertiesForKeys: nil) {
+      let target = to.appendingPathComponent(item.lastPathComponent)
+      if fm.fileExists(atPath: target.path) { var d: ObjCBool = false; fm.fileExists(atPath: item.path, isDirectory: &d); if d.boolValue { try copyTree(from: item, to: target) }; continue }
+      try fm.copyItem(at: item, to: target)
+    }
+  }
+
+  static func run(_ tool: String, _ args: [String]) throws -> (status: Int32, out: String) {
+    let p = Process(); p.executableURL = URL(fileURLWithPath: tool); p.arguments = args
+    let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+    try p.run(); let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+    return (p.terminationStatus, String(decoding: data, as: UTF8.self))
+  }
+  static func digest(_ d: Data) -> String { SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined() }
+  static func stripBOM(_ d: Data) -> Data { d.starts(with: [0xEF, 0xBB, 0xBF]) ? d.dropFirst(3) : d }
+  static func safeComponent(_ s: String) -> String {
+    let t = String(s.map { $0.isLetter || $0.isNumber || "._-@".contains($0) ? $0 : "_" }).trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    return t.isEmpty ? "_" : t
+  }
+}
