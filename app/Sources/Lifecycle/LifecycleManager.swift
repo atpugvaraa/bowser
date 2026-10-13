@@ -45,6 +45,7 @@ public final class LifecycleManager {
   }
   public func lastActiveDate(of id: TabID) -> Date? { lastActive[id] }
   public func isRegistered(_ id: TabID) -> Bool { tabs[id] != nil }
+  public func isShown(_ id: TabID) -> Bool { id == active || visible.contains(id) }
   public var liveCount: Int { tabs.values.filter { $0.isLive }.count }
 
   /// The focused tab lost focus without another taking its place (e.g. its window closed). Starts its idle clock.
@@ -95,6 +96,17 @@ public final class LifecycleManager {
       if t.hibernate(force: false) { report.hibernated.append(id) } else { report.skippedBecauseActivated.append(id) }
     }
     return report
+  }
+
+  /// Fast, cheap check (one syscall per live tab): stops any tab whose renderer exceeds the memory cap. Runs every second so a
+  /// memory bomb is cut off in about a second instead of filling RAM until the 30 s maintenance pass. Returns the stopped tabs.
+  @discardableResult public func memoryWatchdog(physical: UInt64 = ProcessInfo.processInfo.physicalMemory) -> [TabID] {
+    let cap = config.tabMemoryCapBytes(physical: physical); var stopped: [TabID] = []
+    for (id, t) in tabs where t.isLive {
+      guard let b = t.memoryBytes, b > (t.hasUnsavedInput ? cap &* 2 : cap) else { continue }      // unsaved typing gets double room, never unlimited
+      t.shedForMemory(bytes: b); stopped.append(id)
+    }
+    return stopped
   }
 
   /// Sleep one tab right now unless a HARD protection applies (media playing, capture, download, dirty form...). Used when a

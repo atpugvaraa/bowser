@@ -34,6 +34,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     ("maxLiveNormal", "Awake tabs limit — normal memory", "Extra tabs beyond this are slept (oldest first). Tabs playing media or with unsaved input are never slept."),
     ("maxLiveWarning", "Awake tabs limit — memory warning", ""),
     ("maxLiveCritical", "Awake tabs limit — memory critical", ""),
+    ("tabMemoryCap", "Stop a tab using more than (MB; 0 = automatic)", "Protects your Mac from a page that eats all memory. Automatic = a quarter of your RAM (2–8 GB). The stopped tab keeps its address; Reload runs it again."),
   ]
   private let neverSleep = NSTextField()
 
@@ -70,6 +71,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     fields["defaultGrace"]?.stringValue = minutes(c.defaultGrace); fields["minGrace"]?.stringValue = minutes(c.minGrace)
     fields["criticalFloor"]?.stringValue = minutes(c.criticalFloor); fields["audibleGrace"]?.stringValue = minutes(c.audibleGrace)
     fields["maxLiveNormal"]?.stringValue = "\(c.maxLive.normal)"; fields["maxLiveWarning"]?.stringValue = "\(c.maxLive.warning)"; fields["maxLiveCritical"]?.stringValue = "\(c.maxLive.critical)"
+    fields["tabMemoryCap"]?.stringValue = "\(c.tabMemoryCapMB)"
     neverSleep.stringValue = c.neverSleepHosts.joined(separator: ", ")
     blockEnabled.state = app.blocking.enabled ? .on : .off; blockAllow.stringValue = app.blocking.allowlist.joined(separator: ", ")
     loadedText = fields.mapValues { $0.stringValue }; loadedText["enabled"] = "\(enabled.state.rawValue)"; loadedText["neverSleep"] = neverSleep.stringValue
@@ -104,6 +106,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     minutesField("criticalFloor") { c.criticalFloor = $0 }; minutesField("audibleGrace") { c.audibleGrace = $0 }
     func limit(_ k: String) -> Int? { guard changed(k) else { return nil }; if let d = num(k, max: 100_000), let i = Int(exactly: d.rounded()), i >= 1 { return i }; problems.append("\(k): enter a whole number of tabs (1 or more)"); return nil }
     if let v = limit("maxLiveNormal") { c.maxLive.normal = v }; if let v = limit("maxLiveWarning") { c.maxLive.warning = v }; if let v = limit("maxLiveCritical") { c.maxLive.critical = v }
+    if changed("tabMemoryCap") { if let d = num("tabMemoryCap", max: 131_072), let i = Int(exactly: d.rounded()), i == 0 || i >= 512 { c.tabMemoryCapMB = i } else { problems.append("tabMemoryCap: enter 0 (automatic) or at least 512 MB") } }
     if "\(enabled.state.rawValue)" != loadedText["enabled"] { c.enabled = enabled.state == .on }
     var rejected: [String] = []
     if neverSleep.stringValue != loadedText["neverSleep"] {

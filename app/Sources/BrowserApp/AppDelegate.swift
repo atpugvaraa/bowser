@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   }
 
   private func startServices() {
-    engine.startMaintenance(every: 30)
+    engine.startMaintenance(every: 30); engine.startMemoryWatchdog()
     pressure = PressureMonitor { [weak self] _ in Task { @MainActor in _ = await self?.engine.maintenance() } }
     NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.engine.noteWake() }
@@ -199,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
       let a = NSAlert(); a.alertStyle = .critical; a.messageText = "Couldn't save your session"
       a.informativeText = "\(error)\n\nQuitting now may lose your latest tab changes."
       a.addButton(withTitle: "Cancel"); a.addButton(withTitle: "Quit Anyway")
-      if a.runModal() == .alertFirstButtonReturn { engine.startMaintenance(every: 30); return .terminateCancel }       // keep hibernation/backups running
+      if a.runModal() == .alertFirstButtonReturn { engine.startMaintenance(every: 30); engine.startMemoryWatchdog(); return .terminateCancel }       // keep hibernation/backups running
     }
     return .terminateNow
   }

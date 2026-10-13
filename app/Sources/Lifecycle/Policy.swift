@@ -77,6 +77,7 @@ public struct PolicyConfig: Sendable, Codable {
   public var pinnedMultiplier = 3.0
   public var liveConnectionMultiplier = 3.0         // grace multiplier for tabs with an open WebSocket/EventSource
   public var audibleGrace: TimeInterval = 10 * 60   // keep a tab live this long after its audio stops
+  public var tabMemoryCapMB = 0                      // a single tab's renderer above this is stopped (0 = automatic: 25% of RAM, 2-8 GB). Defends against memory bombs.
   public var neverSleepHosts: [String] = []         // user list: tabs on these sites (and their subdomains) are never slept
   public var pressureScale = PressureTable<Double>(normal: 1.0, warning: 0.5, critical: 0.25)
   public var maxLive = PressureTable<Int>(normal: 60, warning: 40, critical: 20)
@@ -93,7 +94,7 @@ public struct PolicyConfig: Sendable, Codable {
     enabled = get(.enabled, enabled); defaultGrace = get(.defaultGrace, defaultGrace); minGrace = get(.minGrace, minGrace)
     criticalFloor = get(.criticalFloor, criticalFloor); gapFactor = get(.gapFactor, gapFactor); coldGap = get(.coldGap, coldGap)
     maxGrace = get(.maxGrace, maxGrace); taperWidth = get(.taperWidth, taperWidth); pinnedMultiplier = get(.pinnedMultiplier, pinnedMultiplier)
-    liveConnectionMultiplier = get(.liveConnectionMultiplier, liveConnectionMultiplier); audibleGrace = get(.audibleGrace, audibleGrace)
+    liveConnectionMultiplier = get(.liveConnectionMultiplier, liveConnectionMultiplier); audibleGrace = get(.audibleGrace, audibleGrace); tabMemoryCapMB = get(.tabMemoryCapMB, tabMemoryCapMB)
     func table<T: Codable & Sendable>(_ k: CodingKeys, _ cur: PressureTable<T>) -> PressureTable<T> {      // per-field: a partial table keeps the rest
       guard let p = (try? c.decodeIfPresent(PartialTable<T>.self, forKey: k)) ?? nil else { return cur }
       return PressureTable(normal: p.normal?.v ?? cur.normal, warning: p.warning?.v ?? cur.warning, critical: p.critical?.v ?? cur.critical)
@@ -103,7 +104,7 @@ public struct PolicyConfig: Sendable, Codable {
     if let list = (try? c.decodeIfPresent([Lossy<String>].self, forKey: .neverSleepHosts)) ?? nil { neverSleepHosts = list.compactMap(\.v) }
   }
   enum CodingKeys: String, CodingKey {
-    case enabled, defaultGrace, minGrace, criticalFloor, gapFactor, coldGap, maxGrace, taperWidth, pinnedMultiplier, liveConnectionMultiplier, audibleGrace, pressureScale, maxLive, budgetFloor, neverSleepHosts
+    case enabled, defaultGrace, minGrace, criticalFloor, gapFactor, coldGap, maxGrace, taperWidth, pinnedMultiplier, liveConnectionMultiplier, audibleGrace, pressureScale, maxLive, budgetFloor, neverSleepHosts, tabMemoryCapMB
   }
 
   /// Product default for a heavy multi-tab user (tuned on the simulator, see docs/results/policy-sim-*): tabs stay alive long,
@@ -137,6 +138,12 @@ public struct PolicyConfig: Sendable, Codable {
     return neverSleepHosts.first { h == $0 || h.hasSuffix("." + $0) }
   }
 
+  /// The per-tab renderer memory ceiling in bytes for a Mac with `physical` bytes of RAM.
+  public func tabMemoryCapBytes(physical: UInt64) -> UInt64 {
+    if tabMemoryCapMB > 0 { return UInt64(min(tabMemoryCapMB, 131_072)) * 1_048_576 }
+    return min(max(physical / 4, 2 << 30), 8 << 30)
+  }
+
   /// Clamp user input to sane values (a typo must never hibernate everything).
   public func validated() -> PolicyConfig {
     var c = self
@@ -151,6 +158,7 @@ public struct PolicyConfig: Sendable, Codable {
     c.pinnedMultiplier = min(max(fin(c.pinnedMultiplier, 3), 1), 20)
     c.audibleGrace = min(max(fin(c.audibleGrace, 600), 0), 24 * 3600)
     c.liveConnectionMultiplier = min(max(fin(c.liveConnectionMultiplier, 3), 1), 20)
+    c.tabMemoryCapMB = c.tabMemoryCapMB <= 0 ? 0 : min(max(c.tabMemoryCapMB, 512), 131_072)      // 0 = automatic; a typo can never cap tabs below 512 MB
     var seen = Set<String>(); c.neverSleepHosts = c.neverSleepHosts.map { PolicyConfig.normalizeHost($0) }.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(200).map { $0 }   // order kept; capped, never silently reordered
     func sc(_ x: Double) -> Double { min(max(fin(x, 1), 0.05), 1) }
     c.pressureScale = .init(normal: sc(c.pressureScale.normal), warning: sc(c.pressureScale.warning), critical: sc(c.pressureScale.critical))

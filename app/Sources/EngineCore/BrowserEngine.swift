@@ -131,7 +131,22 @@ public final class BrowserEngine {
     maintenanceTimer?.invalidate()
     maintenanceTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: true) { [weak self] _ in Task { @MainActor in _ = await self?.maintenance() } }
   }
-  public func stopMaintenance() { maintenanceTimer?.invalidate(); maintenanceTimer = nil }
+  private var watchdogTimer: Timer?
+  /// Runs the 1 s memory watchdog; a stopped tab that is on screen gets its explanation page right away.
+  public func startMemoryWatchdog(every seconds: TimeInterval = 1) {
+    watchdogTimer?.invalidate()
+    let t = Timer(timeInterval: seconds, repeats: true) { [weak self] _ in MainActor.assumeIsolated { _ = self?.watchdogTick() } }
+    RunLoop.main.add(t, forMode: .common); watchdogTimer = t                    // .common: keeps running during menu tracking and modal panels
+  }
+  @discardableResult public func watchdogTick() -> [TabID] {
+    let stopped = lifecycle.memoryWatchdog()
+    guard !stopped.isEmpty else { return [] }
+    for id in stopped { session.persistTabState(id, nil) }                       // the saved history would restore the runaway page after a relaunch
+    for id in stopped where lifecycle.isShown(id) { tabs[id]?.ensureLiveView() }
+    onChange?()
+    return stopped
+  }
+  public func stopMaintenance() { maintenanceTimer?.invalidate(); maintenanceTimer = nil; watchdogTimer?.invalidate(); watchdogTimer = nil }
   public func noteWake() { lifecycle.noteWake() }
   /// Quit: write everything now. Throws if the model cannot be written (the caller must not claim a clean shutdown).
   public func shutdown() throws {

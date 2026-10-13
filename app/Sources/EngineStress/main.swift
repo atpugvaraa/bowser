@@ -346,6 +346,32 @@ Task { @MainActor in
     if files.count != 2 || escaped || qlen <= 0 || files.contains(where: { $0.contains("/") || $0.hasPrefix(".") }) { fail("download safety: files=\(files) escaped=\(escaped) quarantine=\(qlen)") }
   }
 
+  // hostile memory: a page that allocates ~1.3 GB/s must be cut off by the per-tab cap, shown an explanation, and not resumed
+  do {
+    try? "<title>membomb</title><script>const a=[];setInterval(()=>{try{a.push(new Uint8Array(64*1024*1024).fill(1))}catch(e){}},50)</script>".write(toFile: "\(pagesDir!)/membomb.html", atomically: true, encoding: .utf8)
+    var capCfg = PolicyConfig(); capCfg.tabMemoryCapMB = 1000
+    let lm = LifecycleManager(config: capCfg)
+    let mt = WebKitTab(url: URL(string: "\(baseURL!)/membomb.html")!, configuration: cfg); let mw = mt.ensureLive()
+    let mwin = NSWindow(contentRect: mw.frame, styleMask: [.titled], backing: .buffered, defer: false); mwin.contentView = mw; mwin.orderBack(nil)
+    lm.register(mt, host: "127.0.0.1"); lm.activate(mt.id)
+    let started = Date(); var peak = 0.0; var stoppedAt: Double?
+    while Date().timeIntervalSince(started) < 40 {
+      try? await Task.sleep(nanoseconds: 1_000_000_000)                                  // the production watchdog interval
+      peak = max(peak, mb(mt.memoryBytes ?? 0))
+      if !lm.memoryWatchdog().isEmpty { stoppedAt = Date().timeIntervalSince(started); break }
+    }
+    let freed = mt.memoryBytes == nil
+    let shown = mt.ensureLive(); _ = await waitUntil(15) { shown.title == "This page was stopped" }
+    let title = shown.title ?? "-"
+    log("- hostile memory: cap 1000 MB; peak seen \(Int(peak)) MB; stopped after \(stoppedAt.map { String(format: "%.0f s", $0) } ?? "never"); process freed: \(freed); tab now shows \"\(title)\" (host \(Int(hostMB())) MB)")
+    let keptURL = mt.currentURL?.absoluteString == "\(baseURL!)/membomb.html"
+    mt.reload(); _ = await waitUntil(15) { shown.title == "membomb" }
+    let reran = shown.title == "membomb"; mt.hibernate(force: true)                // user pressed Reload: the REAL page runs again (then we put it to sleep)
+    log("- hostile memory: tab kept its real URL: \(keptURL); Reload re-ran the real page: \(reran)")
+    if !keptURL || !reran { fail("stopped tab: keptURL=\(keptURL) reloadReran=\(reran)") }
+    if stoppedAt == nil || !freed || title != "This page was stopped" || peak > 1000 + 3500 { fail("memory cap: stoppedAt=\(String(describing: stoppedAt)) freed=\(freed) title=\(title) peak=\(Int(peak))") }
+  }
+
   log("\n**Result:** \(failures.isEmpty ? "PASS" : "FAIL (\(failures.count))")")
   if let p = outPath { try? report.joined(separator: "\n").write(toFile: p, atomically: true, encoding: .utf8) }
   exit(failures.isEmpty ? 0 : 1)

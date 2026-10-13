@@ -465,6 +465,10 @@ do {
 @MainActor final class FakeTab: EngineTab {
   let id = TabID(); var live = true; var isActive = false; var sig = TabSignals(); var delayMs = 0; var hibernations = 0; var wasResumed = 0
   var isLive: Bool { live }
+  var mem: UInt64?; var shed = 0; var dirty = false
+  var hasUnsavedInput: Bool { dirty }
+  var memoryBytes: UInt64? { mem }
+  func shedForMemory(bytes: UInt64) { shed += 1; live = false; mem = nil }
   func signals(timeout: TimeInterval) async -> TabSignals {
     if delayMs > 0 { try? await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000) }
     return sig
@@ -1122,6 +1126,29 @@ do {
   PRAGMA user_version=4;
   """, nil, nil, nil); sqlite3_close(h4)
   let m5 = try Store(path: mp4).load(); check(m5.windows.count == 1 && m5.windows.values.first?.frame == nil && m5.spaces.count == 1, "migration v4 -> v5 keeps windows (frame unknown = nil)")
+}
+// 34. Memory watchdog (per-tab ceiling)
+do {
+  let GB: UInt64 = 1 << 30
+  check(PolicyConfig().tabMemoryCapBytes(physical: 18 * GB) == 4 * GB + GB / 2, "mem cap: automatic = a quarter of RAM (18 GB -> 4.5 GB)")
+  check(PolicyConfig().tabMemoryCapBytes(physical: 4 * GB) == 2 * GB && PolicyConfig().tabMemoryCapBytes(physical: 128 * GB) == 8 * GB, "mem cap: automatic is clamped to 2...8 GB")
+  var u = PolicyConfig(); u.tabMemoryCapMB = 3000; check(u.tabMemoryCapBytes(physical: 18 * GB) == 3000 << 20, "mem cap: the user's value wins")
+  u.tabMemoryCapMB = 5; check(u.validated().tabMemoryCapMB == 512, "mem cap: absurdly low values are raised to 512 MB")
+  u.tabMemoryCapMB = -9; check(u.validated().tabMemoryCapMB == 0, "mem cap: negative means automatic")
+  u.tabMemoryCapMB = 99_999_999; check(u.validated().tabMemoryCapMB == 131_072, "mem cap: huge values are bounded")
+  let dec = try JSONDecoder().decode(PolicyConfig.self, from: Data(#"{"defaultGrace":600}"#.utf8)); check(dec.tabMemoryCapMB == 0, "mem cap: an older saved config without the field decodes to automatic")
+  let lm = LifecycleManager(config: { var c = PolicyConfig(); c.tabMemoryCapMB = 1000; return c }())
+  let big = FakeTab(), small = FakeTab(), asleep = FakeTab(); big.mem = 1500 << 20; small.mem = 200 << 20; asleep.live = false; asleep.mem = 9999 << 20
+  for t in [big, small, asleep] { lm.register(t, host: "x.test") }
+  let stopped = lm.memoryWatchdog(physical: 18 * GB)
+  check(stopped == [big.id] && big.shed == 1 && small.shed == 0 && asleep.shed == 0, "mem watchdog: only the live tab over the cap is stopped")
+  check(lm.memoryWatchdog(physical: 18 * GB).isEmpty, "mem watchdog: a stopped tab is not stopped again")
+  let typing = FakeTab(); typing.mem = 1500 << 20; typing.dirty = true; lm.register(typing, host: "z.test")
+  check(lm.memoryWatchdog(physical: 18 * GB).isEmpty && typing.shed == 0, "mem watchdog: a tab with unsaved typing gets double the cap")
+  typing.mem = 2100 << 20; check(lm.memoryWatchdog(physical: 18 * GB) == [typing.id], "mem watchdog: ...but not unlimited")
+  u.tabMemoryCapMB = Int.max; check(u.tabMemoryCapBytes(physical: 18 * GB) == 131_072 << 20, "mem cap: an unvalidated huge value cannot overflow")
+  let act = FakeTab(); act.mem = 2000 << 20; lm.register(act, host: "y.test"); lm.activate(act.id)
+  check(lm.memoryWatchdog(physical: 18 * GB) == [act.id], "mem watchdog: the focused tab is protected from sleep but NOT from the memory cap")
 }
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

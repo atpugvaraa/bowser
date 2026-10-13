@@ -33,4 +33,15 @@ public protocol EngineTab: AnyObject {
   func goForward()
   func reload()
   func stopLoading()
+  /// Physical memory of this tab's renderer in bytes, nil if unknown/hibernated (read by the fast memory watchdog).
+  var memoryBytes: UInt64? { get }
+  /// The tab exceeded its memory cap: destroy its renderer and show an explanation instead of re-running the page.
+  func shedForMemory(bytes: UInt64)
+  /// The user typed into a form and has not submitted: such a tab gets 2x the memory cap before it is stopped.
+  var hasUnsavedInput: Bool { get }
+}
+public extension EngineTab {
+  var hasUnsavedInput: Bool { false }
+  var memoryBytes: UInt64? { nil }
+  func shedForMemory(bytes: UInt64) {}
 }

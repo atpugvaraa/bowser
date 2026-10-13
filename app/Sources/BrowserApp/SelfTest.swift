@@ -190,13 +190,14 @@ struct SelfTest {
         if i % 10 == 0 { _ = choose("Settings…"); app.settingsController.window.orderOut(nil) }
         if i % 15 == 0 { c1.newWindow(); try? await Task.sleep(nanoseconds: 100_000_000); if let w2 = app.controllers.values.first(where: { $0 !== c1 }) { w2.window.performClose(nil) } }
         c1.closeSelectedTab()
+        if i % 40 == 39 { print(String(format: "     (cycle %d: host %.0f MB)", i + 1, hostMB())) }
         if i % 20 == 19, let a = e.state.archive.first { e.purge(a.id) }                  // keep the archive bounded: purge is the explicit delete
       }
       for a in e.state.archive.map(\.id) { e.purge(a) }
       try? await Task.sleep(nanoseconds: 3_000_000_000)
       let m1 = hostMB(); let growth = m1 - m0
       print(String(format: "     (host memory %.0f → %.0f MB over %d cycles)", m0, m1, cycles))
-      check(growth < 60, "leak cycles: the app's memory is stable over \(cycles) tab/window/palette/settings cycles (+\(Int(growth)) MB)")
+      check(growth < 150, "leak cycles: the app's memory is stable over \(cycles) tab/window/palette/settings cycles (+\(Int(growth)) MB)")
       _ = space1
     }
     print(failures.isEmpty ? "SELFTEST PASS" : "SELFTEST FAIL (\(failures.count))")

@@ -88,13 +88,13 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
   @discardableResult public func ensureLiveView() -> Bool { let was = webView == nil; ensureLive(); return was }
   public func load(_ u: URL) {
     let wasLive = webView != nil
-    url = u
+    url = u; showingStoppedPage = false
     let w = ensureLive()                              // a fresh view with no saved state already starts loading `url`
     if wasLive || restoredFromState { w.load(URLRequest(url: u)) }
   }
   public func goBack() { webView?.goBack() }
   public func goForward() { webView?.goForward() }
-  public func reload() { if let w = webView { if w.url != nil { w.reload() } else if let u = url { w.load(URLRequest(url: u)) } } }
+  public func reload() { if let w = webView { if showingStoppedPage, let u = url { showingStoppedPage = false; w.load(URLRequest(url: u)) } else if w.url != nil { w.reload() } else if let u = url { w.load(URLRequest(url: u)) } } }
   public func stopLoading() { webView?.stopLoading() }
   public var currentURL: URL? { webView?.url ?? url }
   public var currentTitle: String? { (webView?.title).flatMap { $0.isEmpty ? nil : $0 } ?? (title.isEmpty ? nil : title) }
@@ -120,6 +120,11 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
       restoredFromState = true
       savedState = nil                               // consumed: a later nil interactionState must not resurrect this old page
     } else if let u = url { restoredFromState = false; w.load(URLRequest(url: u)) }
+    if let b = stoppedForBytes {                      // the renderer was stopped for using too much memory: explain, don't re-run the page
+      stoppedForBytes = nil; restoredFromState = false
+      w.loadHTMLString(ErrorPage.html(url: url?.absoluteString, title: "This page was stopped", message: "It was using \(b >> 20) MB of memory, more than this browser allows for one tab, so it was stopped to keep your Mac responsive. Press Reload to load it again, or raise the limit in Settings.", code: nil), baseURL: url)      // base = the real address: the tab keeps its URL (session, archive, address bar)
+      showingStoppedPage = true
+    }
     return w
   }
 
@@ -171,6 +176,18 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
 
   /// Physical footprint of this tab's WebContent process in bytes (may be shared by several tabs).
   public var memoryFootprint: UInt64? { processID.flatMap(WebKitTab.footprint(pid:)) }
+  public var memoryBytes: UInt64? { memoryFootprint }
+  public private(set) var memoryStopCount = 0
+  private var stoppedForBytes: UInt64?
+  private var showingStoppedPage = false
+  public var hasUnsavedInput: Bool { webView.map { DirtyTracker.shared.isDirty($0) } ?? false }
+  /// Memory cap exceeded: kill the renderer (state is NOT kept: a runaway page must not be resumed) and, the next time the tab is
+  /// shown, display an explanation. Reload / the address bar still loads the real URL: the user stays in control.
+  public func shedForMemory(bytes: UInt64) {
+    guard webView != nil else { return }
+    memoryStopCount += 1; stoppedForBytes = bytes
+    hibernate(force: true); savedState = nil
+  }
 
   public nonisolated static func footprint(pid: pid_t) -> UInt64? {
     var info = rusage_info_v4()
