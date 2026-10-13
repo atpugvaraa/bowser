@@ -130,26 +130,14 @@ final class AppKitSidebarContainerView: FlippedView {
   private var initialWidthOnDrag: CGFloat = 0
 
   override var isOpaque: Bool { true }
+  /// The space's frame colour: sidebar and the strip around the page are one tinted surface (Arc), the page card floats on it.
+  var fillColor: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
 
   override func draw(_ dirtyRect: NSRect) {
-    let color = NSColor(name: nil) { a in
-      a.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        ? NSColor(red: 0.115, green: 0.115, blue: 0.125, alpha: 1.0) // #1d1d20 matte dark charcoal
-        : NSColor(red: 0.955, green: 0.955, blue: 0.965, alpha: 1.0) // clean matte light
-    }
-    color.setFill()
+    fillColor.setFill()
     dirtyRect.fill()
-
-    // 0.5pt subtle separator line on the right edge
-    let line = NSBezierPath()
-    line.move(to: NSPoint(x: bounds.width - 0.5, y: 0))
-    line.line(to: NSPoint(x: bounds.width - 0.5, y: bounds.height))
-    line.lineWidth = 0.5
-    NSColor(name: nil) { a in
-      a.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 1.0, alpha: 0.08) : NSColor(white: 0.0, alpha: 0.07)
-    }.setStroke()
-    line.stroke()
   }
+  override func viewDidChangeEffectiveAppearance() { needsDisplay = true }
 
   override func resetCursorRects() {
     super.resetCursorRects()

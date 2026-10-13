@@ -16,7 +16,7 @@ Light mode has not been looked at yet; everything below was judged in dark mode.
 
 ## Still bad / needs work
 ### Sidebar
-1. Sidebar is flat charcoal; the space colour only shows in the frame around the page. Arc tints the sidebar itself.
+1. ~~Sidebar was flat charcoal~~ — fixed: sidebar and page frame are now one space-tinted surface. Row/selection/hover colours were tuned for charcoal and still need checking on bright tints and in light mode.
 2. When hidden, there is no hover-to-reveal edge; only the toggle or its shortcut brings it back. The toggle overlaps the page card's corner.
 3. Empty favorites tray ("Drag to add Favorites") takes ~70pt of prime space. Make it collapse to a thin drop target.
 4. Favorites tray rebuilds all tiles on every refresh (hover state lost, wasted layout). Diff against the previous tile data.

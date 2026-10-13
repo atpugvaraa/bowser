@@ -260,7 +260,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   /// Re-tint the frame, sidebar and accents for the window's current space.
   private func applySpaceColours() {
     let sp = space.flatMap { engine.state.space($0) }
-    mainTint.color = SpacePalette.frame(for: sp); cardOverlay.frameColor = SpacePalette.frame(for: sp)
+    mainTint.color = SpacePalette.frame(for: sp); cardOverlay.frameColor = SpacePalette.frame(for: sp); sidebar.fillColor = SpacePalette.frame(for: sp)
     progress.contentFilters = []
   }
 
