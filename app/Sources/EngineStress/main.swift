@@ -297,6 +297,42 @@ Task { @MainActor in
   // 0. delegate conformance (silent-misnaming guard)
   do { let m = WebKitTab.missingDelegateMethods(); if m.isEmpty { log("- all WebKit delegate methods are implemented under their real protocol names") } else { fail("delegate methods NOT implemented (misnamed?): \(m)") } }
 
+  // 10b. Frame governor (LTPO-style): rAF semantics preserved; full rate while interacting, slower when idle
+  do {
+    let g = FrameGovernor(maxHz: 120, settleMs: 300, idleMs: 600)
+    let c = WKWebViewConfiguration(); c.websiteDataStore = .nonPersistent()
+    c.userContentController.addUserScript(WKUserScript(source: g.source, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+    let w = WKWebView(frame: .init(x: 0, y: 0, width: 300, height: 200), configuration: c)
+    let win = NSWindow(contentRect: w.frame, styleMask: [.titled], backing: .buffered, defer: false); win.isReleasedWhenClosed = false; win.contentView = w; win.orderFrontRegardless()
+    w.loadHTMLString("<html><body>fg</body></html>", baseURL: nil)
+    _ = await waitUntil(20) { w.isLoading == false }
+    let js = """
+    const order = [];
+    await new Promise(res => { requestAnimationFrame(() => { order.push('a'); requestAnimationFrame(() => { order.push('c'); res(); }); });
+      const id = requestAnimationFrame(() => order.push('X')); requestAnimationFrame(() => order.push('b')); cancelAnimationFrame(id); });
+    const count = async (ms, active) => { let n = 0, stop = false; const loop = () => { n++; if (!stop) requestAnimationFrame(loop); }; requestAnimationFrame(loop);
+      const t = active ? setInterval(() => window.dispatchEvent(new Event('pointermove')), 40) : 0;
+      await new Promise(r => setTimeout(r, ms)); stop = true; clearInterval(t); return n * 1000 / ms; };
+    const active = await count(1000, true);
+    await new Promise(r => setTimeout(r, 1500));
+    const idle = await count(1000, false);
+    const hit = []; await new Promise(res => { let idB; requestAnimationFrame(() => { hit.push('A'); cancelAnimationFrame(idB); });
+      idB = requestAnimationFrame(() => hit.push('B')); requestAnimationFrame(() => res()); });
+    return JSON.stringify({ order: order.join(''), active, idle, cancelInFrame: hit.join('') });
+    """
+    let r = try? await w.callAsyncJavaScript(js, arguments: [:], in: nil, contentWorld: .page)
+    let m = ((r as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) }) as? [String: Any] ?? [:]
+    let act = (m["active"] as? Double) ?? -1, idl = (m["idle"] as? Double) ?? -1
+    log("- frame governor: order=\(m["order"] ?? "?") active=\(Int(act)) fps idle=\(Int(idl)) fps")
+    if (m["cancelInFrame"] as? String) != "A" { fail("frame governor: a cancel issued inside a frame did not stop the later callback: \(m["cancelInFrame"] ?? "nil")") }
+    if (m["order"] as? String) != "abc" { fail("frame governor changed requestAnimationFrame ordering/cancel semantics: \(m["order"] ?? "nil")") }
+    if act < 40 { fail("frame governor: interacting page ran at only \(Int(act)) fps") }
+    if !(idl >= 10 && idl <= 45 && act > idl * 1.5) { fail("frame governor: idle page did not slow down (active \(Int(act)), idle \(Int(idl)))") }
+    win.close()
+    func cl(_ d: Int, _ ac: Bool, _ pct: Int?, _ lpm: Bool) -> Int { FrameGovernor.ceiling(displayMax: d, onAC: ac, batteryPercent: pct, lowPowerMode: lpm) }
+    if !(cl(120, true, 80, false) == 120 && cl(120, false, 80, false) == 60 && cl(120, false, 20, false) == 30 && cl(120, true, 100, true) == 30 && cl(60, true, nil, false) == 60 && cl(120, false, nil, false) == 60) { fail("frame governor: power ceilings wrong") }
+  }
+
   // 11. Navigation security, popups, errors, downloads, capture — real WebKit
   do {
     try? """

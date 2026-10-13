@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     let (s, state, rec) = try SessionManager.start(path: dir.appendingPathComponent("session.sqlite").path)
     session = s; recovery = rec
     factory = WebKitTabFactory(persistent: !isSelfTest)
+    factory.startPowerWatch()
     factory.externalOpenHandler = { NSWorkspace.shared.open($0) }
     blocking = EngineSettings.loadBlocking(from: session)
     do { try await factory.prepareContentBlocking(blocking, storeURL: dir.appendingPathComponent("rulelists")) }

@@ -1195,6 +1195,24 @@ do {
     let folder = try ExtensionPackage.prepare(source: cr, into: root)
     check(folder.name == "CR" && folder.id.hasPrefix("ext-"), "ext: an unpacked folder installs too")
   } catch { check(false, "ext: chrome install threw \(error)") }
+  do {   // review fixes: symlinks, id collisions, edited folders
+    let sl = try mk("sl", #"{"manifest_version":3,"name":"SL","version":"1"}"#)
+    try fm.createSymbolicLink(at: sl.appendingPathComponent("icons"), withDestinationURL: URL(fileURLWithPath: "/etc"))
+    do { _ = try ExtensionPackage.prepare(source: sl, into: root); check(false, "ext: a folder containing a symlink must be refused") } catch { check(true, "ext: a folder containing a symlink is refused") }
+    let zp = Process(); zp.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); zp.currentDirectoryURL = sl; zp.arguments = ["-q", "-r", "-y", base.appendingPathComponent("sl.zip").path, "."]
+    zp.standardOutput = FileHandle.nullDevice; try zp.run(); zp.waitUntilExit()
+    do { _ = try ExtensionPackage.prepare(source: base.appendingPathComponent("sl.zip"), into: root); check(false, "ext: a zip with a symlink entry must be refused") } catch { check(true, "ext: a zip with a symlink entry is refused") }
+    let m1 = #"{"manifest_version":2,"name":"Same","version":"1","browser_specific_settings":{"gecko":{"id":"dup@x"}}}"#
+    let d1 = try mk("dup1", m1, extra: ["a.js": "1"]), d2 = try mk("dup2", m1, extra: ["a.js": "2"])
+    let r1 = try ExtensionPackage.prepare(source: d1, into: root), r2 = try ExtensionPackage.prepare(source: d2, into: root)
+    check(r1.id == r2.id && r1.directory != r2.directory, "ext: two different packages claiming one id and version never share a folder")
+    check((try? String(contentsOf: r1.directory.appendingPathComponent("a.js"), encoding: .utf8)) == "1", "ext: the first install's files are untouched by the second")
+    try "3".write(to: d1.appendingPathComponent("a.js"), atomically: true, encoding: .utf8)
+    let r3 = try ExtensionPackage.prepare(source: d1, into: root)
+    check(r3.directory != r1.directory, "ext: editing an unpacked extension's code installs as a new copy")
+    let r1b = try ExtensionPackage.prepare(source: d2, into: root)
+    check(r1b.directory == r2.directory, "ext: re-installing identical content is a no-op")
+  } catch { check(false, "ext: review-fix fixtures failed \(error)") }
   check((try? ExtensionPackage.zipData(fromCRX: Data("Cr24".utf8) + Data([9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))) == nil, "ext: an unknown CRX version is refused")
   check((try? ExtensionPackage.zipData(fromCRX: Data("Cr24".utf8) + Data([3, 0, 0, 0, 200, 0, 0, 0]))) == nil, "ext: a truncated CRX is refused")
   do {

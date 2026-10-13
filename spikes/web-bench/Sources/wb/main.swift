@@ -36,13 +36,15 @@ func footprint(_ pid: pid_t) -> (mb: Double, cpu: Double) {
 let app = NSApplication.shared; app.setActivationPolicy(.accessory)
 let cfg = WKWebViewConfiguration(); cfg.websiteDataStore = .nonPersistent()
 cfg.preferences.isElementFullscreenEnabled = true
-func setFlag(_ key: String, _ on: Bool) -> Bool {
+func setFlag(_ key: String, _ on: Bool, prefs: WKPreferences? = nil) -> Bool {
+  let prefs = prefs ?? cfg.preferences
   guard WKPreferences.responds(to: NSSelectorFromString("_features")), let list = WKPreferences.perform(NSSelectorFromString("_features"))?.takeUnretainedValue() as? [NSObject], let f = list.first(where: { ($0.value(forKey: "key") as? String) == key }) else { return false }
-  let sel = NSSelectorFromString("_setEnabled:forFeature:"); guard let imp = cfg.preferences.method(for: sel) else { return false }
-  typealias Fn = @convention(c) (AnyObject, Selector, Bool, AnyObject) -> Void; unsafeBitCast(imp, to: Fn.self)(cfg.preferences, sel, on, f); return true
+  let sel = NSSelectorFromString("_setEnabled:forFeature:"); guard let imp = prefs.method(for: sel) else { return false }
+  typealias Fn = @convention(c) (AnyObject, Selector, Bool, AnyObject) -> Void; unsafeBitCast(imp, to: Fn.self)(prefs, sel, on, f); return true
 }
 for (k, v) in flagKV { print("flag \(k)=\(v) applied=\(setFlag(k, v))") }
 if safariUA { cfg.applicationNameForUserAgent = "Version/27.0 Safari/605.1.15" }
+if let i = args.firstIndex(of: "--script"), i + 1 < args.count, let src = try? String(contentsOfFile: args[i + 1], encoding: .utf8) { cfg.userContentController.addUserScript(WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: false)) }   // e.g. scripts/fg-js.sh output
 cfg.userContentController.addUserScript(WKUserScript(source: probe, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 let d = D(); let wv = WKWebView(frame: .init(x: 0, y: 0, width: 1280, height: 800), configuration: cfg); wv.navigationDelegate = d; wv.uiDelegate = d
 let win = NSWindow(contentRect: wv.frame, styleMask: [.titled], backing: .buffered, defer: false); win.contentView = wv; win.orderFrontRegardless()
@@ -69,6 +71,12 @@ Task { @MainActor in
   if let js = afterLoad { _ = try? await wv.evaluateJavaScript(js); try? await Task.sleep(nanoseconds: 4_000_000_000) }
   _ = try? await wv.evaluateJavaScript("if(window.__wb){__wb.frames=0;__wb.long=0;__wb.worst=0;__wb.t0=performance.now();__wb.last=performance.now();}")   // measure steady state, not load
   let c0 = footprint(pid).cpu; let w0 = Date()
+  if let i = args.firstIndex(of: "--flip"), i + 1 < args.count {      // --flip Key=1@seconds : change a feature flag on the LIVE page and report frames before/after
+    let a = args[i + 1].split(separator: "@"); let kv = a[0].split(separator: "="); let at = Double(a[1]) ?? 5
+    try? await Task.sleep(nanoseconds: UInt64(at * 1_000_000_000))
+    let before = (try? await wv.evaluateJavaScript("__wb.frames")) as? Int ?? -1
+    print("FLIP \(kv[0])=\(kv[1]) applied=\(setFlag(String(kv[0]), kv[1] == "1", prefs: wv.configuration.preferences)) frames_before=\(before) at=\(at)s")
+  }
   try? await Task.sleep(nanoseconds: UInt64(max(seconds - 3, 1) * 1_000_000_000))
   if let js = evalJS, let r = try? await wv.evaluateJavaScript(js) { print("EVAL \(r)") }
   let f = footprint(pid)

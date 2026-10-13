@@ -6,7 +6,7 @@ import Foundation
 /// Nothing is ever deleted: a package is unpacked into `<root>/<id>/<version>/` and its original is kept beside it.
 public enum ExtensionPackage {
   public enum PackageError: Error, Equatable {
-    case notFound, badCRX(String), unsafeEntry(String), unzipFailed(Int32), noManifest, badManifest(String)
+    case notFound, badCRX(String), unsafeEntry(String), unzipFailed(Int32), noManifest, badManifest(String), tooLarge(String)
   }
   public struct Prepared: Equatable {
     public var id: String
@@ -24,35 +24,51 @@ public enum ExtensionPackage {
   public static let needsShim: Set<String> = ["downloads", "history", "bookmarks", "offscreen", "userScripts", "nativeMessaging", "webRequestBlocking", "webRequest", "contextMenus", "commands", "proxy", "tabGroups"]
 
   // MARK: install
+  public static let maxPackageBytes = 200 << 20, maxUnpackedBytes = 500 << 20, maxEntries = 10_000, maxManifestBytes = 1 << 20
+
   public static func prepare(source: URL, into root: URL) throws -> Prepared {
     var isDir: ObjCBool = false
-    guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDir) else { throw PackageError.notFound }
     let fm = FileManager.default
+    guard fm.fileExists(atPath: source.path, isDirectory: &isDir) else { throw PackageError.notFound }
     var unpacked = source
-    var packageHash = ""
+    var hash = ""
     if !isDir.boolValue {
+      let size = ((try? fm.attributesOfItem(atPath: source.path))?[.size] as? Int) ?? 0
+      guard size <= maxPackageBytes else { throw PackageError.tooLarge("package is \(size >> 20) MB") }
       var data = try Data(contentsOf: source)
-      packageHash = digest(data)
+      hash = digest(data)
       if data.starts(with: Array("Cr24".utf8)) { data = try zipData(fromCRX: data) }
-      let stage = root.appendingPathComponent(".staging", isDirectory: true).appendingPathComponent(packageHash, isDirectory: true)
+      let stage = root.appendingPathComponent(".staging", isDirectory: true).appendingPathComponent(hash, isDirectory: true)
       try fm.createDirectory(at: stage, withIntermediateDirectories: true)
       let zip = stage.appendingPathComponent("package.zip")
       try data.write(to: zip, options: .atomic)
       unpacked = stage.appendingPathComponent("files", isDirectory: true)
-      if !fm.fileExists(atPath: unpacked.appendingPathComponent("manifest.json").path) { try unzip(zip, into: unpacked) }
+      if !fm.fileExists(atPath: unpacked.appendingPathComponent("manifest.json").path) {
+        let tmp = stage.appendingPathComponent("files.tmp-\(UUID().uuidString)", isDirectory: true)       // a killed/failed unzip never leaves a "complete-looking" folder
+        try unzip(zip, into: tmp)
+        try fm.moveItem(at: tmp, to: unpacked)
+      }
     }
+    try rejectSymlinks(in: unpacked)
+    if isDir.boolValue { hash = try treeDigest(unpacked) }
     let manifestURL = unpacked.appendingPathComponent("manifest.json")
+    guard let attrs = try? fm.attributesOfItem(atPath: manifestURL.path) else { throw PackageError.noManifest }
+    guard ((attrs[.size] as? Int) ?? 0) <= maxManifestBytes else { throw PackageError.tooLarge("manifest.json") }
     guard let raw = try? Data(contentsOf: manifestURL) else { throw PackageError.noManifest }
     guard var m = (try? JSONSerialization.jsonObject(with: stripBOM(raw))) as? [String: Any] else { throw PackageError.badManifest("not a JSON object") }
     let n = normalize(&m)
     guard let name = m["name"] as? String, let version = m["version"] as? String else { throw PackageError.badManifest("missing name or version") }
     let mv = (m["manifest_version"] as? Int) ?? 2
-    let id = n.geckoID ?? "ext-" + String((packageHash.isEmpty ? digest(raw) : packageHash).prefix(16))
-    let dest = root.appendingPathComponent(safeComponent(id), isDirectory: true).appendingPathComponent(safeComponent(version), isDirectory: true)
-    try fm.createDirectory(at: dest, withIntermediateDirectories: true)
-    if unpacked.standardizedFileURL != dest.standardizedFileURL { try copyTree(from: unpacked, to: dest) }
-    let out = try JSONSerialization.data(withJSONObject: m, options: [.prettyPrinted, .sortedKeys])
-    try out.write(to: dest.appendingPathComponent("manifest.json"), options: .atomic)
+    let id = n.geckoID ?? "ext-" + String(digest(Data(((m["key"] as? String) ?? name).utf8)).prefix(16))      // stable across versions so updates replace, never collide by code
+    // The folder name carries the package's content hash: two different packages can never share (or merge into) a folder, and a re-install of identical bytes is a no-op.
+    let dest = root.appendingPathComponent(safeComponent(id), isDirectory: true).appendingPathComponent(safeComponent(version) + "-" + hash.prefix(12), isDirectory: true)
+    if !fm.fileExists(atPath: dest.appendingPathComponent("manifest.json").path) {
+      let tmp = dest.deletingLastPathComponent().appendingPathComponent(".tmp-\(UUID().uuidString)", isDirectory: true)
+      try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try fm.copyItem(at: unpacked, to: tmp)
+      try JSONSerialization.data(withJSONObject: m, options: [.prettyPrinted, .sortedKeys]).write(to: tmp.appendingPathComponent("manifest.json"), options: .atomic)
+      try fm.moveItem(at: tmp, to: dest)
+    }
     let perms = ((m["permissions"] as? [Any]) ?? []).compactMap { $0 as? String }
     let hosts = ((m["host_permissions"] as? [Any]) ?? []).compactMap { $0 as? String } + perms.filter(isHostPattern)
     return Prepared(id: id, name: name, version: version, manifestVersion: mv, directory: dest, isFirefox: n.geckoID != nil || n.firefoxKeys,
@@ -109,23 +125,53 @@ public enum ExtensionPackage {
     return d.subdata(in: start..<d.count)
   }
 
-  /// Unzips with the system `unzip` after checking every entry name (no absolute paths, no `..`: zip-slip).
+  /// Unzips with the system `unzip` after checking every entry (no absolute paths, no `..`, no symlinks, bounded count and size).
   static func unzip(_ zip: URL, into dest: URL) throws {
-    let list = try run("/usr/bin/unzip", ["-Z1", zip.path])
-    for line in list.out.split(separator: "\n") {
+    let names = try run("/usr/bin/unzip", ["-Z1", zip.path])
+    let entries = names.out.split(separator: "\n")
+    guard entries.count <= maxEntries else { throw PackageError.tooLarge("\(entries.count) entries") }
+    for line in entries {
       let e = String(line)
       if e.hasPrefix("/") || e.split(separator: "/").contains("..") || e.contains("\0") { throw PackageError.unsafeEntry(e) }
     }
+    let long = try run("/usr/bin/unzip", ["-Z", zip.path])                      // long listing: first column of each entry line starts with the type (l = symlink)
+    if long.out.split(separator: "\n").contains(where: { $0.hasPrefix("l") }) { throw PackageError.unsafeEntry("symbolic link inside the package") }
+    let summary = try run("/usr/bin/unzip", ["-Zt", zip.path]).out                // "N files, X bytes uncompressed, ..."
+    if let r = summary.range(of: #"(\d+) bytes uncompressed"#, options: .regularExpression), let total = Int(summary[r].split(separator: " ")[0]), total > maxUnpackedBytes { throw PackageError.tooLarge("\(total >> 20) MB unpacked") }
     try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
     let r = try run("/usr/bin/unzip", ["-q", "-o", zip.path, "-d", dest.path])
     guard r.status == 0 else { throw PackageError.unzipFailed(r.status) }
-    // zips made on other systems sometimes wrap everything in one top folder: unwrap by pointing at it
+    try rejectSymlinks(in: dest)
+    // zips made on other systems sometimes wrap everything in one top folder: hoist it
     if !FileManager.default.fileExists(atPath: dest.appendingPathComponent("manifest.json").path) {
       let kids = (try? FileManager.default.contentsOfDirectory(atPath: dest.path).filter { !$0.hasPrefix("__MACOSX") && !$0.hasPrefix(".") }) ?? []
       if kids.count == 1, FileManager.default.fileExists(atPath: dest.appendingPathComponent(kids[0]).appendingPathComponent("manifest.json").path) {
         try copyTree(from: dest.appendingPathComponent(kids[0]), to: dest)
       }
     }
+  }
+
+  /// Any symbolic link anywhere in an unpacked extension is refused (it could point at the user's files or let later entries escape the folder).
+  static func rejectSymlinks(in dir: URL) throws {
+    guard let en = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.isSymbolicLinkKey], options: []) else { return }
+    var count = 0
+    for case let u as URL in en {
+      count += 1; if count > maxEntries { throw PackageError.tooLarge("\(count) files") }
+      if (try? u.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true { throw PackageError.unsafeEntry("symbolic link: \(u.lastPathComponent)") }
+    }
+  }
+  /// Content hash of a folder (paths + bytes, sorted) so an edited unpacked extension is a new version, not a silent overwrite.
+  static func treeDigest(_ dir: URL) throws -> String {
+    var h = SHA256(); var total = 0
+    guard let en = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]) else { return "" }
+    var files: [URL] = []
+    for case let u as URL in en where (try? u.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true { files.append(u) }
+    for u in files.sorted(by: { $0.path < $1.path }) {
+      total += (try? u.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+      if total > maxUnpackedBytes { throw PackageError.tooLarge("folder") }
+      h.update(data: Data(String(u.path.dropFirst(dir.path.count)).utf8)); h.update(data: try Data(contentsOf: u))
+    }
+    return h.finalize().map { String(format: "%02x", $0) }.joined()
   }
 
   static func copyTree(from: URL, to: URL) throws {
@@ -140,7 +186,9 @@ public enum ExtensionPackage {
   static func run(_ tool: String, _ args: [String]) throws -> (status: Int32, out: String) {
     let p = Process(); p.executableURL = URL(fileURLWithPath: tool); p.arguments = args
     let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
-    try p.run(); let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+    try p.run()
+    let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }; DispatchQueue.global().asyncAfter(deadline: .now() + 60, execute: killer)
+    let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit(); killer.cancel()
     return (p.terminationStatus, String(decoding: data, as: UTF8.self))
   }
   static func digest(_ d: Data) -> String { SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined() }
