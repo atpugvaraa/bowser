@@ -1,0 +1,142 @@
+# Engine scale run 2026-10-13 04:11:19 +0000
+- macOS Version 27.0.1 (Build 26A434); tabs=1000, live budget=100, activations=300, soak=3600 s
+- page mix: light 400, article 250, spa 150, heavy 80, anim 60, chatty 40, audio 20
+- memory-pressure WARNING observed on 22 of 50 build batches (policy tightens the budget at warning)
+- built 1000 tabs in 67 s -> live 75, hibernated 925
+- steady state: WebContent **4020 MB** in 75 processes, host 214 MB, swap 3868 MB (start 2564), pressure warning
+- measured ~53.6 MB WebContent per live tab; ESTIMATE if all 1000 were live: 53601 MB (this Mac has 18432 MB RAM)
+- live tabs older than the 300 s budget floor: 75 (budget 100); recently-used tabs are protected by design
+FAIL store at scale threw: mustLoadFirst
+- 300 heavy-tailed activations: live-hit **32%**, resume latency of misses p50 123 / p95 226 / p99 348 ms (n=205)
+- policy evaluation at 1000 tabs: median 1.1 ms, max 2.7 ms (includes only the pure policy call)
+- after churn: WebContent 1350 MB / 45 procs, live 45, host 203 MB, swap 3868 MB, pageouts +449, pressure normal
+
+## Soak 3600 s (sample every 30 s)
+
+| t(s) | live | WebContent MB | procs | host MB | swap MB | pressure |
+|---|---|---|---|---|---|---|
+| 0 | 46 | 1375 | 46 | 203 | 3868 | normal |
+| 31 | 73 | 2860 | 73 | 204 | 3868 | warning |
+| 61 | 77 | 2792 | 77 | 194 | 3860 | warning |
+| 91 | 77 | 2946 | 77 | 195 | 3852 | warning |
+| 121 | 78 | 2756 | 78 | 195 | 3852 | warning |
+| 151 | 78 | 2816 | 78 | 196 | 3772 | warning |
+| 181 | 77 | 2749 | 77 | 197 | 3764 | warning |
+| 211 | 76 | 2780 | 76 | 197 | 3764 | warning |
+| 242 | 78 | 2848 | 78 | 197 | 3764 | warning |
+| 272 | 76 | 2546 | 76 | 197 | 3764 | warning |
+| 302 | 79 | 2744 | 79 | 197 | 3764 | warning |
+| 332 | 77 | 3052 | 77 | 197 | 3764 | warning |
+| 362 | 77 | 2942 | 77 | 197 | 3764 | warning |
+| 393 | 80 | 3093 | 80 | 197 | 3756 | warning |
+| 423 | 80 | 2842 | 80 | 197 | 3756 | warning |
+| 453 | 75 | 2467 | 75 | 197 | 3756 | warning |
+| 483 | 79 | 2733 | 79 | 197 | 3756 | warning |
+| 513 | 79 | 2799 | 79 | 198 | 3756 | warning |
+| 543 | 82 | 2827 | 82 | 198 | 3756 | warning |
+| 573 | 80 | 2961 | 80 | 198 | 3756 | warning |
+| 604 | 80 | 2962 | 80 | 198 | 3756 | warning |
+| 634 | 80 | 3017 | 80 | 198 | 3756 | warning |
+| 664 | 82 | 3128 | 82 | 198 | 3756 | warning |
+| 694 | 82 | 3325 | 82 | 198 | 3756 | warning |
+| 724 | 75 | 2608 | 75 | 198 | 3756 | warning |
+| 754 | 75 | 3068 | 75 | 198 | 3756 | warning |
+| 784 | 75 | 2650 | 75 | 198 | 3756 | warning |
+| 815 | 75 | 2973 | 75 | 198 | 3756 | warning |
+| 845 | 75 | 2691 | 75 | 198 | 3748 | warning |
+| 875 | 76 | 2924 | 76 | 199 | 3748 | warning |
+| 905 | 75 | 2706 | 75 | 199 | 3748 | warning |
+| 935 | 75 | 2826 | 75 | 199 | 3748 | warning |
+| 966 | 76 | 2936 | 76 | 199 | 3748 | warning |
+| 996 | 76 | 3000 | 76 | 199 | 3748 | warning |
+| 1026 | 77 | 2674 | 77 | 199 | 3748 | warning |
+| 1056 | 77 | 2938 | 77 | 199 | 3748 | warning |
+| 1086 | 76 | 2641 | 76 | 199 | 3748 | warning |
+| 1116 | 77 | 2778 | 77 | 199 | 3748 | warning |
+| 1147 | 78 | 2854 | 78 | 199 | 3748 | warning |
+| 1177 | 77 | 2840 | 77 | 199 | 3748 | warning |
+| 1207 | 76 | 2764 | 76 | 199 | 3748 | warning |
+| 1237 | 79 | 3056 | 79 | 199 | 3748 | warning |
+| 1267 | 79 | 2809 | 79 | 199 | 3748 | warning |
+| 1297 | 79 | 2661 | 79 | 199 | 3748 | warning |
+| 1327 | 75 | 2568 | 75 | 199 | 3748 | warning |
+| 1358 | 76 | 2426 | 76 | 199 | 3748 | warning |
+| 1388 | 80 | 2723 | 80 | 199 | 3748 | warning |
+| 1418 | 79 | 2714 | 79 | 200 | 3748 | warning |
+| 1448 | 80 | 2947 | 80 | 200 | 3748 | warning |
+| 1478 | 77 | 2805 | 77 | 200 | 3748 | warning |
+| 1509 | 78 | 2718 | 78 | 200 | 3748 | warning |
+| 1539 | 77 | 2919 | 77 | 200 | 3740 | warning |
+| 1569 | 75 | 2753 | 75 | 200 | 3740 | warning |
+| 1600 | 82 | 3007 | 82 | 200 | 1692 | normal |
+| 1630 | 100 | 3988 | 100 | 201 | 1572 | normal |
+| 1660 | 100 | 3816 | 100 | 203 | 1075 | normal |
+| 1691 | 102 | 3781 | 102 | 203 | 1027 | normal |
+| 1721 | 101 | 3793 | 101 | 204 | 979 | normal |
+| 1751 | 101 | 3880 | 101 | 204 | 971 | normal |
+| 1781 | 102 | 3740 | 102 | 204 | 947 | normal |
+| 1813 | 104 | 3957 | 104 | 204 | 947 | normal |
+| 1857 | 101 | 3953 | 101 | 204 | 947 | normal |
+| 1887 | 102 | 3891 | 102 | 204 | 939 | normal |
+| 1917 | 103 | 4172 | 103 | 204 | 939 | normal |
+| 1947 | 102 | 4154 | 102 | 204 | 915 | normal |
+| 1977 | 103 | 4054 | 103 | 204 | 915 | normal |
+| 2007 | 103 | 4183 | 103 | 204 | 915 | normal |
+| 2038 | 105 | 4165 | 105 | 204 | 915 | normal |
+| 2068 | 105 | 3833 | 105 | 204 | 915 | normal |
+| 2099 | 100 | 3546 | 100 | 204 | 915 | normal |
+| 2129 | 103 | 3571 | 103 | 204 | 915 | normal |
+| 2159 | 103 | 3675 | 103 | 204 | 915 | normal |
+| 2189 | 100 | 3819 | 100 | 204 | 915 | normal |
+| 2219 | 99 | 3855 | 99 | 204 | 915 | normal |
+| 2250 | 100 | 3501 | 100 | 204 | 915 | normal |
+| 2280 | 101 | 3959 | 101 | 204 | 915 | normal |
+| 2310 | 100 | 3792 | 100 | 204 | 915 | normal |
+| 2341 | 101 | 3599 | 101 | 204 | 915 | normal |
+| 2371 | 101 | 3746 | 101 | 204 | 915 | normal |
+| 2401 | 101 | 3791 | 101 | 204 | 915 | normal |
+| 2431 | 101 | 3845 | 101 | 204 | 915 | normal |
+| 2461 | 100 | 3610 | 100 | 204 | 915 | normal |
+| 2492 | 102 | 3590 | 102 | 204 | 915 | normal |
+| 2522 | 99 | 3634 | 99 | 205 | 915 | normal |
+| 2552 | 103 | 4005 | 103 | 205 | 915 | normal |
+| 2582 | 102 | 3619 | 102 | 205 | 907 | normal |
+| 2613 | 102 | 3556 | 102 | 205 | 907 | normal |
+| 2643 | 105 | 4431 | 105 | 205 | 907 | normal |
+| 2673 | 107 | 4109 | 107 | 205 | 907 | normal |
+| 2703 | 105 | 4005 | 105 | 205 | 907 | normal |
+| 2733 | 105 | 3970 | 105 | 205 | 907 | normal |
+| 2763 | 103 | 4080 | 103 | 205 | 907 | normal |
+| 2793 | 102 | 4183 | 102 | 205 | 907 | normal |
+| 2823 | 104 | 3735 | 104 | 205 | 907 | normal |
+| 2853 | 106 | 3873 | 106 | 205 | 907 | normal |
+| 2884 | 104 | 3929 | 104 | 205 | 907 | normal |
+| 2914 | 106 | 4060 | 106 | 205 | 907 | normal |
+| 2944 | 103 | 3731 | 103 | 205 | 907 | normal |
+| 2974 | 104 | 3808 | 104 | 205 | 907 | normal |
+| 3004 | 102 | 4061 | 102 | 205 | 907 | normal |
+| 3034 | 106 | 4208 | 106 | 205 | 907 | normal |
+| 3064 | 100 | 3401 | 100 | 205 | 907 | normal |
+| 3095 | 100 | 3415 | 100 | 205 | 907 | normal |
+| 3125 | 100 | 3699 | 100 | 205 | 907 | normal |
+| 3155 | 101 | 3874 | 101 | 205 | 907 | normal |
+| 3186 | 100 | 3810 | 100 | 206 | 907 | normal |
+| 3216 | 101 | 4010 | 101 | 206 | 907 | normal |
+| 3246 | 100 | 3801 | 100 | 206 | 907 | normal |
+| 3276 | 101 | 3858 | 101 | 206 | 907 | normal |
+| 3306 | 102 | 3951 | 102 | 206 | 907 | normal |
+| 3337 | 101 | 3910 | 101 | 206 | 907 | normal |
+| 3367 | 102 | 3863 | 102 | 206 | 907 | normal |
+| 3397 | 103 | 3699 | 103 | 206 | 907 | normal |
+| 3427 | 102 | 3568 | 102 | 206 | 907 | normal |
+| 3457 | 102 | 3650 | 102 | 206 | 907 | normal |
+| 3488 | 104 | 3912 | 104 | 206 | 907 | normal |
+| 3518 | 103 | 4061 | 103 | 206 | 907 | normal |
+| 3548 | 103 | 3929 | 103 | 207 | 907 | normal |
+| 3578 | 104 | 3818 | 104 | 207 | 907 | normal |
+- soak memory slope (2nd half): -132.8 MB/hour (≈0 = no leak)
+- audio tabs: 20/20 still live, hibernations: 0
+
+**Result:** FAIL (1)
+report: /Users/kd/Developer/browser/docs/results/engine-scale-20261013-094118.md (exit 1)
+samples: /Users/kd/Developer/browser/docs/results/soak-20261013-094053.csv   (compare against: scripts/soak.sh --safari 1 1000)

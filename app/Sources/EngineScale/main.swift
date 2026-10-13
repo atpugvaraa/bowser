@@ -177,6 +177,7 @@ final class ScaleRun {
     let dbPath = "\(pagesDir)/scale.sqlite"
     do {
       let store = try Store(path: dbPath)
+      _ = try store.load()                            // an existing db must be loaded before it may be saved (the store refuses otherwise: that protects real sessions)
       _ = model.openWindow(space: space)
       let ts = Date(); try store.save(model); let saveMs = Date().timeIntervalSince(ts) * 1000
       let tl = Date(); let back = try store.load(); let loadMs = Date().timeIntervalSince(tl) * 1000
