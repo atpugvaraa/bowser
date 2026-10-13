@@ -367,6 +367,9 @@ Task { @MainActor in
     zp.standardOutput = FileHandle.nullDevice; try zp.run(); zp.waitUntilExit()
     let nogrant = try mk("ng", ["manifest.json": #"{"manifest_version":3,"name":"NoGrant","version":"1","host_permissions":["*://127.0.0.1/*"],\#(csMatch)}"#,
       "cs.js": "document.documentElement.setAttribute('data-ng', 'ran');"])
+    let dnr = try mk("dnr", ["manifest.json": #"{"manifest_version":3,"name":"DnrTest","version":"1","description":"d","permissions":["declarativeNetRequest"],"host_permissions":["*://127.0.0.1/*"],"declarative_net_request":{"rule_resources":[{"id":"r1","enabled":true,"path":"rules.json"}]}}"#,
+      "rules.json": #"[{"id":1,"priority":1,"action":{"type":"block"},"condition":{"urlFilter":"blockme","resourceTypes":["xmlhttprequest","script","image","other"]}}]"#])
+    try "x".write(toFile: "\(pagesDir!)/blockme.txt", atomically: true, encoding: .utf8); try "x".write(toFile: "\(pagesDir!)/allowed.txt", atomically: true, encoding: .utf8)
     try "<html><head><title>exttest</title></head><body>hi</body></html>".write(toFile: "\(pagesDir!)/exttest.html", atomically: true, encoding: .utf8)
     let root = base.appendingPathComponent("installed", isDirectory: true)
     let host = ExtensionHost(registry: base.appendingPathComponent("extensions.json")); host.persistent = false; host.allowPrivate = true
@@ -378,6 +381,7 @@ Task { @MainActor in
     await host.install(pCr, permissions: ["storage"], hosts: pCr.hostPatterns)
     await host.install(pFf, permissions: ["storage"], hosts: ["*://127.0.0.1/*"])
     await host.install(pNg, permissions: [], hosts: [])
+    let pDnr = try ExtensionPackage.prepare(source: dnr, into: root); await host.install(pDnr, permissions: ["declarativeNetRequest"], hosts: pDnr.hostPatterns)
     let t = factory.makeTab(id: TabID(), url: nil, profile: profile, restoredState: nil) as! WebKitTab
     env.tab = t; let w = t.ensureLive()
     let win = NSWindow(contentRect: .init(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false); win.isReleasedWhenClosed = false; win.contentView = w; win.orderFrontRegardless()
@@ -392,6 +396,9 @@ Task { @MainActor in
       if attrs["cr"] is String && attrs["ff"] is String { break }
     }
     for l in host.status() { log("  - \(l)") }
+    let net = (try? await w.callAsyncJavaScript("const t=async u=>{try{await fetch(u,{cache:'no-store'});return 'loaded'}catch(e){return 'BLOCKED'}};return (await t('/allowed.txt'))+','+(await t('/blockme.txt'))", arguments: [:], in: nil, contentWorld: .page)) as? String ?? "?"
+    log("  - network rules (declarativeNetRequest static ruleset): allowed.txt,blockme.txt = \(net)")
+    if net != "loaded,BLOCKED" { fail("extensions: a static declarativeNetRequest block rule did not block (\(net))") }
     log("  - page: \(attrs)")
     log("- extensions: chrome=\(attrs["cr"] ?? "nil") firefox=\(attrs["ff"] ?? "nil") ungranted=\(attrs["ng"] ?? "nil") errors=\(host.loadErrors)")
     if (attrs["cr"] as? String) != "42" { fail("extensions: Chrome MV3 content script -> service worker round trip failed (\(attrs["cr"] ?? "nil"))") }

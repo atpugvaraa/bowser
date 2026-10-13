@@ -129,3 +129,10 @@ Clean run, every row valid with page-reported fps. This browser == Safari on pow
 - `WKWebExtensionContext.loadBackgroundContent()` after `controller.load()` double-resumes a continuation and crashes the process (macOS 27.0.1); never call it.
 - A manifest without `description` is reported as an error by WebKit; the normaliser fills it from the name.
 - WebKit has no knob for a page frame rate below the display rate; `PreferPageRenderingUpdatesNear60FPSEnabled` is read at page creation only. The adaptive rate is therefore an injected rAF governor (FrameGovernor.swift); measured 120 fps/15% CPU -> 45 fps/9% on the shader page when idle tiers apply.
+
+## 2026-10-13 uBlock Origin Lite and the compatibility "conversion layer"
+- uBO Lite DOES block in this host: on cnn.com all 16 remaining ad/tracker URLs were blocked (control: 40/40 allowed) and the page made fewer ad requests. The earlier "didn't block" was the host setup (private data store, missing grants), fixed this session. No conversion layer is needed for network blocking.
+- WebKit supports `scripting.registerContentScripts` (MAIN world, CSS, matchOriginAsFallback, persistAcrossSessions), dynamic and session DNR rules. It lacks `chrome.userScripts` and `chrome.offscreen`; uBO Lite uses them only for custom filter lists and user scripts and feature-detects them.
+- ExtLab (app/Sources/ExtLab) loads any extension (dir, file, chrome:ID, firefox:SLUG) into a real tab and evals JS: use it for the compatibility matrix.
+- Regression: EngineStress now asserts a static declarativeNetRequest block rule blocks a local fetch.
+- Secure Enclave keys (CryptoKit) work unsigned and ad-hoc signed on this Mac.

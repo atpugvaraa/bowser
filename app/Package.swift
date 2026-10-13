@@ -17,6 +17,7 @@ let package = Package(
     .target(name: "Extensions"),
     .executableTarget(name: "EngineStress", dependencies: ["Extensions", "BrowserCore", "Lifecycle", "EngineWebKit", "EngineCore", "Persistence", "ContentBlocking"]),
     .executableTarget(name: "BrowserApp", dependencies: ["BrowserCore", "Lifecycle", "Persistence", "Resources", "EngineCore", "EngineWebKit", "ContentBlocking"], swiftSettings: [.swiftLanguageMode(.v5)]),
+    .executableTarget(name: "ExtLab", dependencies: ["Extensions", "BrowserCore", "EngineWebKit", "EngineCore"]),
     .executableTarget(name: "PolicySim", dependencies: ["BrowserCore", "Lifecycle"]),
     .executableTarget(name: "EngineScale", dependencies: ["BrowserCore", "Lifecycle", "EngineWebKit", "Persistence", "Resources"]),
     .executableTarget(name: "CoreChecks", dependencies: ["Extensions", "BrowserCore", "Lifecycle", "Persistence", "Resources", "EngineCore", "ContentBlocking"]),

@@ -24,5 +24,5 @@ Passkeys in a third-party browser need the restricted entitlement `com.apple.dev
 4. After approval: in the developer portal create an App ID for `dev.kd.browser` with that capability, make a **Developer ID** provisioning profile, download it, save it as `scripts/signing/embedded.provisionprofile`, and sign with a **Developer ID Application** certificate. `build-app.sh` then switches to `scripts/signing/Browser-passkeys.entitlements` by itself.
 5. Even with the entitlement, one Chromium-browser developer reports it working only partly (repeated password prompts, an error creating a Google passkey), so test before relying on it.
 
-## Weakening SIP/AMFI instead
-You pre-approved it, but it would only fake the entitlement locally, and passkey requests still need Apple's server-side trust for the Passwords app. Not worth the risk; I have not touched it.
+## Weakening macOS security
+Ruled out by the owner (2026-10-13): SIP, AMFI, boot-args and similar are never changed for this project. Passkey options that keep security intact are in docs/research/007-passkeys-options.md.
