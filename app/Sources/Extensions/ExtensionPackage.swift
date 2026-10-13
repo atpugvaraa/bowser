@@ -26,18 +26,26 @@ public enum ExtensionPackage {
   // MARK: install
   public static let maxPackageBytes = 200 << 20, maxUnpackedBytes = 500 << 20, maxEntries = 10_000, maxManifestBytes = 1 << 20
 
-  public static func prepare(source: URL, into root: URL) throws -> Prepared {
+  /// `requireValidSignature`: a CRX3 file must carry a valid developer signature (tampered/re-packed files are refused) and installs under its true Chrome id.
+  public static func prepare(source: URL, into root: URL, requireValidSignature: Bool = true) throws -> Prepared {
     var isDir: ObjCBool = false
     let fm = FileManager.default
     guard fm.fileExists(atPath: source.path, isDirectory: &isDir) else { throw PackageError.notFound }
     var unpacked = source
     var hash = ""
+    var chromeID: String?
     if !isDir.boolValue {
       let size = ((try? fm.attributesOfItem(atPath: source.path))?[.size] as? Int) ?? 0
       guard size <= maxPackageBytes else { throw PackageError.tooLarge("package is \(size >> 20) MB") }
       var data = try Data(contentsOf: source)
       hash = digest(data)
-      if data.starts(with: Array("Cr24".utf8)) { data = try zipData(fromCRX: data) }
+      if data.starts(with: Array("Cr24".utf8)) {
+        if requireValidSignature {
+          guard data.count > 8, data[4] == 3 else { throw PackageError.badCRX("old CRX2 packages carry no verifiable signature") }
+          do { chromeID = try CrxVerifier.verify(data) } catch { throw PackageError.badCRX("the developer signature does not verify: the file was modified or damaged") }
+        }
+        data = try zipData(fromCRX: data)
+      }
       let stage = root.appendingPathComponent(".staging", isDirectory: true).appendingPathComponent(hash, isDirectory: true)
       try fm.createDirectory(at: stage, withIntermediateDirectories: true)
       let zip = stage.appendingPathComponent("package.zip")
@@ -57,9 +65,10 @@ public enum ExtensionPackage {
     guard let raw = try? Data(contentsOf: manifestURL) else { throw PackageError.noManifest }
     guard var m = (try? JSONSerialization.jsonObject(with: stripBOM(raw))) as? [String: Any] else { throw PackageError.badManifest("not a JSON object") }
     let n = normalize(&m)
+    localise(&m, in: unpacked)
     guard let name = m["name"] as? String, let version = m["version"] as? String else { throw PackageError.badManifest("missing name or version") }
     let mv = (m["manifest_version"] as? Int) ?? 2
-    let id = n.geckoID ?? "ext-" + String(digest(Data(((m["key"] as? String) ?? name).utf8)).prefix(16))      // stable across versions so updates replace, never collide by code
+    let id = chromeID ?? n.geckoID ?? "ext-" + String(digest(Data(((m["key"] as? String) ?? name).utf8)).prefix(16))      // stable across versions so updates replace, never collide by code
     // The folder name carries the package's content hash: two different packages can never share (or merge into) a folder, and a re-install of identical bytes is a no-op.
     let dest = root.appendingPathComponent(safeComponent(id), isDirectory: true).appendingPathComponent(safeComponent(version) + "-" + hash.prefix(12), isDirectory: true)
     if !fm.fileExists(atPath: dest.appendingPathComponent("manifest.json").path) {
@@ -107,6 +116,34 @@ public enum ExtensionPackage {
     let missing = perms.filter { needsShim.contains($0) }.sorted()
     if !missing.isEmpty { notes.append("Uses APIs WebKit does not provide natively (\(Set(missing).sorted().joined(separator: ", "))); the compatibility layer supplies those it can.") }
     return (gecko, ff, notes)
+  }
+
+  /// Replaces `__MSG_key__` in name/description with the extension's own default-locale text (WebExtension i18n), so the install prompt shows real names.
+  static func localise(_ m: inout [String: Any], in dir: URL) {
+    guard let loc = m["default_locale"] as? String, loc.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }),
+          let d = try? Data(contentsOf: dir.appendingPathComponent("_locales/\(loc)/messages.json")), d.count < (4 << 20),
+          let msgs = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return }
+    for k in ["name", "description"] {
+      guard let v = m[k] as? String, v.hasPrefix("__MSG_"), v.hasSuffix("__") else { continue }
+      let key = String(v.dropFirst(6).dropLast(2))
+      if let e = (msgs[key] ?? msgs.first(where: { $0.key.lowercased() == key.lowercased() })?.value) as? [String: Any], let text = e["message"] as? String { m[k] = text }
+    }
+  }
+
+  /// A match pattern that reaches (nearly) every site: `<all_urls>`, a bare `*` host, or a wildcard directly on a top-level domain (`*.com`).
+  public static func isBroadHost(_ pattern: String) -> Bool {
+    if pattern == "<all_urls>" { return true }
+    guard let r = pattern.range(of: "://") else { return false }
+    let rest = pattern[r.upperBound...]; let host = rest.prefix { $0 != "/" }
+    if host == "*" { return true }
+    if host.hasPrefix("*.") { return !host.dropFirst(2).contains(".") }
+    return false
+  }
+  /// Text from an untrusted manifest made safe to show in a dialog: control and bidi characters removed, length bounded.
+  public static func displaySafe(_ s: String, max: Int = 80) -> String {
+    let bad: Set<UInt32> = [0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0x200B, 0x200C, 0x200D, 0xFEFF]
+    let cleaned = String(String.UnicodeScalarView(s.unicodeScalars.filter { !bad.contains($0.value) && ($0.value >= 0x20 && $0.value != 0x7f) }))
+    return cleaned.count > max ? String(cleaned.prefix(max)) + "…" : cleaned
   }
 
   public static func isHostPattern(_ s: String) -> Bool { s == "<all_urls>" || s.contains("://") || s.hasPrefix("*:") }

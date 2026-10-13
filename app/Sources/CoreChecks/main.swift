@@ -7,6 +7,8 @@ import EngineCore
 import Extensions
 import Resources
 import SQLite3
+import Security
+import CryptoKit
 
 // Self-checking tests (XCTest unavailable under Command Line Tools). Exit non-zero on any failure.
 // Crash-writer child mode (spawned by section 13): saves forever, gets SIGKILLed by the parent. MUST run before anything else.
@@ -1186,9 +1188,9 @@ do {
     var crx2 = Data("Cr24".utf8); crx2.append(contentsOf: [2, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 1, 1, 2, 2, 2]); crx2.append(zd)
     check((try? ExtensionPackage.zipData(fromCRX: crx3)) == zd && (try? ExtensionPackage.zipData(fromCRX: crx2)) == zd, "ext: CRX2 and CRX3 headers are stripped exactly")
     let crxFile = base.appendingPathComponent("cr.crx"); try crx3.write(to: crxFile)
-    let r = try ExtensionPackage.prepare(source: crxFile, into: root)
+    let r = try ExtensionPackage.prepare(source: crxFile, into: root, requireValidSignature: false)
     check(r.id.hasPrefix("ext-") && !r.isFirefox && r.hostPatterns == ["<all_urls>"], "ext: a Chrome .crx gets a stable derived id and host access is listed")
-    let again = try ExtensionPackage.prepare(source: crxFile, into: root)
+    let again = try ExtensionPackage.prepare(source: crxFile, into: root, requireValidSignature: false)
     check(again.id == r.id && again.directory == r.directory, "ext: installing the same package twice is idempotent")
     let m = try JSONSerialization.jsonObject(with: Data(contentsOf: r.directory.appendingPathComponent("manifest.json"))) as! [String: Any]
     check((m["background"] as? [String: Any])?["scripts"] == nil, "ext: MV3 with both service_worker and scripts keeps only the worker")
@@ -1226,6 +1228,89 @@ do {
   } catch { check(false, "ext: zip-slip fixture failed \(error)") }
   do { _ = try ExtensionPackage.prepare(source: base.appendingPathComponent("nope.xpi"), into: root); check(false, "ext: missing file") } catch { check(true, "ext: a missing package is an error") }
   do { let bad = try mk("bad", "{not json"); _ = try ExtensionPackage.prepare(source: bad, into: root); check(false, "ext: bad manifest accepted") } catch { check(true, "ext: a malformed manifest is an error, not a crash") }
+}
+
+// 35b. prompt-honesty helpers
+do {
+  check(ExtensionPackage.isBroadHost("<all_urls>") && ExtensionPackage.isBroadHost("https://*/*") && ExtensionPackage.isBroadHost("*://*/*") && ExtensionPackage.isBroadHost("http://*.com/*"), "ext: broad host patterns are recognised (all_urls, bare *, wildcard on a TLD)")
+  check(!ExtensionPackage.isBroadHost("https://*.example.com/*") && !ExtensionPackage.isBroadHost("*://mail.google.com/*"), "ext: specific hosts are not flagged broad")
+  check(ExtensionPackage.displaySafe("Evil\u{202E}txt.exe\u{0}\n") == "Eviltxt.exe", "ext: bidi and control characters are stripped from text shown in the prompt")
+  check(ExtensionPackage.displaySafe(String(repeating: "a", count: 500)).count == 81, "ext: long names are truncated")
+  check(ExtensionStore.parse("https://addons.mozilla.org/en-US/firefox/addon/../") == nil, "store: a slug of dots is refused")
+}
+
+// 36. extension store: link parsing, CRX3 signature verification, download integrity
+do {
+  let id32 = "ddkjiahejlhfcafbddmgiahcphecmpfh"
+  check(ExtensionStore.parse(id32) == .chrome(id: id32), "store: a bare Chrome extension id parses")
+  check(ExtensionStore.parse("https://chromewebstore.google.com/detail/ublock-origin-lite/\(id32)?hl=en") == .chrome(id: id32), "store: a Chrome Web Store link parses")
+  check(ExtensionStore.parse("https://addons.mozilla.org/en-US/firefox/addon/ublock-origin/") == .firefox(slug: "ublock-origin"), "store: a Firefox Add-ons link parses")
+  check(ExtensionStore.parse("http://chromewebstore.google.com/detail/x/\(id32)") == nil && ExtensionStore.parse("https://evil.example/detail/x/\(id32)") == nil && ExtensionStore.parse("https://addons.mozilla.org.evil.example/en-US/firefox/addon/x/") == nil, "store: plain http and look-alike hosts are refused")
+  // build a genuine CRX3 (ECDSA P-256) to verify
+  func varint(_ v: Int) -> Data { var v = v; var d = Data(); repeat { var b = UInt8(v & 0x7f); v >>= 7; if v != 0 { b |= 0x80 }; d.append(b) } while v != 0; return d }
+  func field(_ n: Int, _ b: Data) -> Data { varint(n << 3 | 2) + varint(b.count) + b }
+  func crx3(zip: Data, signWith key: SecKey, spki: Data, idOverride: Data? = nil) -> Data {
+    let cid = idOverride ?? Data(SHA256.hash(data: spki)).prefix(16)
+    let signed = field(1, Data(cid))
+    var payload = Data("CRX3 SignedData\0".utf8); var n = UInt32(signed.count).littleEndian; withUnsafeBytes(of: &n) { payload.append(contentsOf: $0) }; payload += signed + zip
+    let sig = SecKeyCreateSignature(key, .ecdsaSignatureMessageX962SHA256, payload as CFData, nil)! as Data
+    let header = field(3, field(1, spki) + field(2, sig)) + field(10000, signed)
+    var out = Data("Cr24".utf8); var v: UInt32 = 3, hl = UInt32(header.count).littleEndian; withUnsafeBytes(of: &v) { out.append(contentsOf: $0) }; withUnsafeBytes(of: &hl) { out.append(contentsOf: $0) }
+    return out + header + zip
+  }
+  let key = SecKeyCreateRandomKey([kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom, kSecAttrKeySizeInBits: 256] as CFDictionary, nil)!
+  let point = SecKeyCopyExternalRepresentation(SecKeyCopyPublicKey(key)!, nil)! as Data
+  let spki = Data([0x30,0x59,0x30,0x13,0x06,0x07,0x2a,0x86,0x48,0xce,0x3d,0x02,0x01,0x06,0x08,0x2a,0x86,0x48,0xce,0x3d,0x03,0x01,0x07,0x03,0x42,0x00]) + point
+  let zipBytes = Data("PK\u{3}\u{4}pretend-zip".utf8)
+  let good = crx3(zip: zipBytes, signWith: key, spki: spki)
+  let expectID = String(Data(SHA256.hash(data: spki)).prefix(16).flatMap { [$0 >> 4, $0 & 15] }.map { Character(UnicodeScalar(UInt8(ascii: "a") + $0)) })
+  check((try? CrxVerifier.verify(good)) == expectID, "store: a validly signed CRX3 verifies and yields the id derived from its key")
+  var tampered = good; tampered[tampered.count - 1] ^= 0xff
+  check((try? CrxVerifier.verify(tampered)) == nil, "store: a CRX3 whose contents changed after signing is rejected")
+  let other = SecKeyCreateRandomKey([kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom, kSecAttrKeySizeInBits: 256] as CFDictionary, nil)!
+  let spoof = crx3(zip: zipBytes, signWith: other, spki: spki)         // proof claims our key but is signed by another
+  check((try? CrxVerifier.verify(spoof)) == nil, "store: a signature made with a different key than the one claimed is rejected")
+  let liar = crx3(zip: zipBytes, signWith: key, spki: spki, idOverride: Data(repeating: 7, count: 16))
+  check((try? CrxVerifier.verify(liar)) == nil, "store: a crx id that is not derived from the signing key is rejected")
+  do {   // a real zip inside a genuinely signed CRX3 installs under its derived Chrome id; a tampered one is refused
+    let lz = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("loc-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: lz.appendingPathComponent("src/_locales/en"), withIntermediateDirectories: true)
+    try #"{"manifest_version":3,"name":"__MSG_extName__","version":"2","default_locale":"en"}"#.write(to: lz.appendingPathComponent("src/manifest.json"), atomically: true, encoding: .utf8)
+    try #"{"extName":{"message":"Localised Name"}}"#.write(to: lz.appendingPathComponent("src/_locales/en/messages.json"), atomically: true, encoding: .utf8)
+    let zp = Process(); zp.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); zp.currentDirectoryURL = lz.appendingPathComponent("src"); zp.arguments = ["-q", "-r", lz.appendingPathComponent("p.zip").path, "."]; zp.standardOutput = FileHandle.nullDevice; try zp.run(); zp.waitUntilExit()
+    let realZip = try Data(contentsOf: lz.appendingPathComponent("p.zip"))
+    let signed = crx3(zip: realZip, signWith: key, spki: spki)
+    let sf = lz.appendingPathComponent("s.crx"); try signed.write(to: sf)
+    let pr = try ExtensionPackage.prepare(source: sf, into: lz.appendingPathComponent("inst"))
+    check(pr.id == expectID && pr.name == "Localised Name", "ext: a signed CRX installs under its true Chrome id with the localised name")
+    var bad = signed; bad[bad.count - 5] ^= 0x55; let bf = lz.appendingPathComponent("b.crx"); try bad.write(to: bf)
+    do { _ = try ExtensionPackage.prepare(source: bf, into: lz.appendingPathComponent("inst")); check(false, "ext: a tampered CRX must be refused") } catch { check(true, "ext: a tampered CRX is refused at install") }
+  } catch { check(false, "ext: signed CRX fixtures failed \(error)") }
+  check((try? CrxVerifier.verify(Data("Cr24\u{2}\0\0\0".utf8))) == nil && (try? CrxVerifier.verify(Data())) == nil, "store: CRX2 / junk is rejected")
+  // download(): id must match what was asked for; Firefox hash must match the API's
+  let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("store-\(UUID().uuidString)")
+  let okFile = try? await ExtensionStore.download(.chrome(id: expectID), into: tmp, fetch: { _ in good })
+  check(okFile != nil, "store: download accepts a CRX whose id is the requested one")
+  do { _ = try await ExtensionStore.download(.chrome(id: id32), into: tmp, fetch: { _ in good }); check(false, "store: wrong id must be refused") } catch let e as ExtensionStore.StoreError { if case .idMismatch = e { check(true, "store: a CRX for a different extension id is refused") } else { check(false, "store: wrong error \(e)") } }
+  let xpi = Data("xpi-bytes".utf8); let h = SHA256.hash(data: xpi).map { String(format: "%02x", $0) }.joined()
+  @Sendable func meta(_ hash: String) -> Data { Data(#"{"current_version":{"file":{"url":"https://addons.mozilla.org/f.xpi","hash":"sha256:\#(hash)"}}}"#.utf8) }
+  let ffOK = try? await ExtensionStore.download(.firefox(slug: "x"), into: tmp, fetch: { $0.path.hasSuffix(".xpi") ? xpi : meta(h) })
+  check(ffOK != nil, "store: download accepts a Firefox file matching the published sha256")
+  do { _ = try await ExtensionStore.download(.firefox(slug: "x"), into: tmp, fetch: { $0.path.hasSuffix(".xpi") ? Data("evil".utf8) : meta(h) }); check(false, "store: hash mismatch must be refused") } catch { check((error as? ExtensionStore.StoreError) == .hashMismatch, "store: a Firefox file that differs from the published hash is refused") }
+  do { _ = try await ExtensionStore.httpGet(URL(string: "https://evil.example/x.crx")!); check(false, "store: foreign host") } catch { check((error as? ExtensionStore.StoreError) == .badHost("evil.example"), "store: only the official hosts are ever contacted") }
+  do { _ = try await ExtensionStore.httpGet(URL(string: "http://clients2.google.com/x")!); check(false, "store: http") } catch { check(error is ExtensionStore.StoreError, "store: plain http is never used") }
+}
+
+// 36b. LIVE store downloads (opt-in: STORE_LIVE=1; talks only to the official Google / Mozilla hosts)
+if ProcessInfo.processInfo.environment["STORE_LIVE"] == "1" {
+  let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("store-live-\(UUID().uuidString)")
+  for (name, src) in [("uBlock Origin Lite", ExtensionStore.Source.chrome(id: "ddkjiahejlhfcafbddmgiahcphecmpfh")), ("Dark Reader", .chrome(id: "eimadpbcbfnmbkopoojfekhnkhdbieeh")), ("Vimium", .chrome(id: "dbepggeogbaibhgnhhndojpepiihcmeb")), ("uBlock Origin (Firefox)", .firefox(slug: "ublock-origin")), ("Dark Reader (Firefox)", .firefox(slug: "darkreader"))] {
+    do {
+      let f = try await ExtensionStore.download(src, into: dir)
+      let p = try ExtensionPackage.prepare(source: f, into: dir.appendingPathComponent("installed"))
+      print("LIVE ok   \(name): \(p.name) \(p.version) mv\(p.manifestVersion) id=\(p.id) perms=\(p.permissions) hosts=\(p.hostPatterns.prefix(3)) notes=\(p.notes.count)")
+    } catch { print("LIVE FAIL \(name): \(error)"); failures += 1 }
+  }
 }
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

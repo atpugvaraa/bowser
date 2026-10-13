@@ -15,6 +15,7 @@ public protocol ExtensionEnvironment: AnyObject {
   func openTab(url: URL?, active: Bool, in window: WindowID?) -> WebKitTab?
   func select(_ tab: TabID)
   func close(_ tab: TabID)
+  func profile(ofWindow window: WindowID) -> ProfileID?
 }
 
 /// Installed extensions and their live WebKit contexts. One WKWebExtensionController per profile (extension storage and cookies stay per profile);
@@ -35,6 +36,17 @@ public final class ExtensionHost: NSObject, WKWebExtensionControllerDelegate {
   private var contexts: [String: [ProfileID: WKWebExtensionContext]] = [:]
   private var tabAdapters: [TabID: TabAdapter] = [:]
   private var windowAdapters: [WindowID: WindowAdapter] = [:]
+  /// Sites no extension may touch, whatever it asked for or was granted (account/security pages). Subdomains included. UserDefaults `extensionBlockedSites` replaces the default list.
+  public var blockedSites: [String] = UserDefaults.standard.stringArray(forKey: "extensionBlockedSites") ?? ["appleid.apple.com", "idmsa.apple.com", "account.apple.com", "icloud.com", "passwords.apple.com"] {
+    didSet { for byProfile in contexts.values { for c in byProfile.values { applyBlocklist(c) } } }
+  }
+  private func applyBlocklist(_ ctx: WKWebExtensionContext) {
+    for raw in blockedSites {
+      let h = raw.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+      guard !h.isEmpty, !h.contains("/"), !h.contains("*") else { continue }
+      for pat in ["*://\(h)/*", "*://*.\(h)/*", "*://\(h)./*", "*://*.\(h)./*"] { if let m = try? WKWebExtension.MatchPattern(string: pat) { ctx.setPermissionStatus(.deniedExplicitly, for: m) } }
+    }
+  }
   public private(set) var loadErrors: [String: String] = [:]      // extension id -> last load problem, shown in the UI
   public var persistent = true
   /// Tests use non-persistent (private) data stores; WebKit keeps extensions out of private browsing unless told otherwise.
@@ -88,6 +100,7 @@ public final class ExtensionHost: NSObject, WKWebExtensionControllerDelegate {
       for pat in ext.requestedPermissionMatchPatterns.union(ext.optionalPermissionMatchPatterns) {
         ctx.setPermissionStatus(r.hosts.contains(pat.string) ? .grantedExplicitly : .deniedExplicitly, for: pat)
       }
+      applyBlocklist(ctx)
       ctx.hasAccessToPrivateData = allowPrivate
       try c.load(ctx)
       contexts[r.id, default: [:]][profile] = ctx; loadErrors[r.id] = nil
@@ -126,13 +139,20 @@ public final class ExtensionHost: NSObject, WKWebExtensionControllerDelegate {
   public func webExtensionController(_ c: WKWebExtensionController, presentActionPopup action: WKWebExtension.Action, for ctx: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
     if let p = action.popupPopover { presentPopup?(p); completionHandler(nil) } else { completionHandler(NSError(domain: "ExtensionHost", code: 2)) }
   }
-  public func webExtensionController(_ c: WKWebExtensionController, openWindowsFor ctx: WKWebExtensionContext) -> [any WKWebExtensionWindow] { (environment?.windowIDs() ?? []).map { windowAdapter($0) } }
-  public func webExtensionController(_ c: WKWebExtensionController, focusedWindowFor ctx: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { environment?.focusedWindow().map { windowAdapter($0) } }
+  public func webExtensionController(_ c: WKWebExtensionController, openWindowsFor ctx: WKWebExtensionContext) -> [any WKWebExtensionWindow] { windows(for: c).map { windowAdapter($0) } }
+  public func webExtensionController(_ c: WKWebExtensionController, focusedWindowFor ctx: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { environment?.focusedWindow().flatMap { w in windows(for: c).contains(w) ? w : nil }.map { windowAdapter($0) } }
   public func webExtensionController(_ c: WKWebExtensionController, openNewTabUsing options: WKWebExtension.TabConfiguration, for ctx: WKWebExtensionContext, completionHandler: @escaping ((any WKWebExtensionTab)?, (any Error)?) -> Void) {
     let win = (options.window as? WindowAdapter)?.id
     guard let t = environment?.openTab(url: options.url, active: options.shouldBeActive, in: win) else { completionHandler(nil, NSError(domain: "ExtensionHost", code: 1)); return }
     completionHandler(adapter(t), nil)
   }
+
+  /// Only the windows of the profile this controller belongs to: an extension must not see (or reach the web views of) another profile.
+  private func windows(for c: WKWebExtensionController) -> [WindowID] {
+    guard let p = controllers.first(where: { $0.value === c })?.key else { return [] }
+    return (environment?.windowIDs() ?? []).filter { environment?.profile(ofWindow: $0) == p }
+  }
+  public func record(_ id: String) -> Record? { records.first { $0.id == id } }
 
   // MARK: adapters
   final class TabAdapter: NSObject, WKWebExtensionTab {

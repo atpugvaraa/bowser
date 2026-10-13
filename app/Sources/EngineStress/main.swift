@@ -346,6 +346,8 @@ Task { @MainActor in
       func openTab(url: URL?, active: Bool, in window: WindowID?) -> WebKitTab? { nil }
       func select(_ tab: TabID) {}
       func close(_ tab: TabID) {}
+      var prof = ProfileID()
+      func profile(ofWindow window: WindowID) -> ProfileID? { prof }
     }
     let fm = FileManager.default
     let base = URL(fileURLWithPath: "\(pagesDir!)/ext-\(UUID().uuidString)", isDirectory: true)
@@ -355,7 +357,7 @@ Task { @MainActor in
       return d
     }
     let csMatch = #""content_scripts":[{"matches":["*://127.0.0.1/*"],"js":["cs.js"],"run_at":"document_idle"}]"#
-    let cr = try mk("cr", ["manifest.json": #"{"manifest_version":3,"name":"CrTest","version":"1","permissions":["storage"],"host_permissions":["*://127.0.0.1/*"],"background":{"service_worker":"bg.js"},\#(csMatch)}"#,
+    let cr = try mk("cr", ["manifest.json": #"{"manifest_version":3,"name":"CrTest","version":"1","permissions":["storage"],"host_permissions":["<all_urls>"],"background":{"service_worker":"bg.js"},\#(csMatch)}"#,
       "bg.js": "chrome.runtime.onMessage.addListener((m, s, send) => { chrome.storage.local.set({ k: m.v }).then(() => send({ ok: true, echo: m.v + 1 })); return true; });",
       "cs.js": "document.documentElement.setAttribute('data-cr0', '1'); chrome.runtime.sendMessage({ v: 41 }).then(r => document.documentElement.setAttribute('data-cr', String(r && r.echo)));"])
     let ffDir = try mk("ff", ["manifest.json": #"{"manifest_version":2,"name":"FfTest","version":"1","browser_specific_settings":{"gecko":{"id":"fftest@example.org"}},"permissions":["storage","*://127.0.0.1/*"],"background":{"scripts":["bg.js"],"persistent":true},\#(csMatch)}"#,
@@ -370,10 +372,10 @@ Task { @MainActor in
     let host = ExtensionHost(registry: base.appendingPathComponent("extensions.json")); host.persistent = false; host.allowPrivate = true
     let factory = WebKitTabFactory(persistent: false); factory.extensionHost = host
     let env = Env(); host.environment = env
-    let profile = ProfileID()
+    let profile = env.prof
     _ = factory.configuration(for: profile)                                   // creates the profile's controller first, so installs load into it
     let pCr = try ExtensionPackage.prepare(source: cr, into: root), pFf = try ExtensionPackage.prepare(source: base.appendingPathComponent("ff.xpi"), into: root), pNg = try ExtensionPackage.prepare(source: nogrant, into: root)
-    await host.install(pCr, permissions: ["storage"], hosts: ["*://127.0.0.1/*"])
+    await host.install(pCr, permissions: ["storage"], hosts: pCr.hostPatterns)
     await host.install(pFf, permissions: ["storage"], hosts: ["*://127.0.0.1/*"])
     await host.install(pNg, permissions: [], hosts: [])
     let t = factory.makeTab(id: TabID(), url: nil, profile: profile, restoredState: nil) as! WebKitTab
@@ -396,6 +398,12 @@ Task { @MainActor in
     if (attrs["ff"] as? String) != "42" { fail("extensions: Firefox MV2 browser.* promise round trip failed (\(attrs["ff"] ?? "nil"))") }
     if attrs["ng"] is String { fail("extensions: an extension without granted host access still injected its content script") }
     if !host.loadErrors.isEmpty { fail("extensions: load errors \(host.loadErrors)") }
+    // a blocked site: granted extensions get nothing there, whatever they were approved for
+    host.blockedSites = ["127.0.0.1"]; try? await Task.sleep(nanoseconds: 1_000_000_000)
+    w.load(URLRequest(url: URL(string: "\(baseURL!)/exttest.html?blocked")!)); try? await Task.sleep(nanoseconds: 5_000_000_000)
+    let blockedAttrs = (try? await w.evaluateJavaScript("[document.documentElement.getAttribute('data-cr0'), document.documentElement.getAttribute('data-cr'), document.documentElement.getAttribute('data-ff')].join(',') + '|' + document.readyState + '|' + location.search")) as? String ?? "?"
+    log("- extensions on a blocked site: \(blockedAttrs)")
+    if blockedAttrs != ",,|complete|?blocked" { fail("extensions: the blocked-sites list did not stop a granted extension (\(blockedAttrs))") }
     win.close()
   } catch { fail("extensions: \(error)") }
 

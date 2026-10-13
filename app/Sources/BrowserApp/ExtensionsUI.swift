@@ -40,6 +40,7 @@ final class ExtensionsUI: NSObject, ExtensionEnvironment, NSMenuDelegate {
   }
   func select(_ tab: TabID) { if let w = window(of: tab) { _ = engine.select(tab: tab, in: w) } }
   func close(_ tab: TabID) { engine.closeTab(tab) }
+  func profile(ofWindow window: WindowID) -> ProfileID? { engine.state.windows[window].flatMap { engine.state.space($0.space)?.profile } }
 
   private func profile(of tab: TabID) -> ProfileID? { engine.state.tabs[tab].flatMap { engine.state.space($0.space)?.profile } }
 
@@ -62,6 +63,19 @@ final class ExtensionsUI: NSObject, ExtensionEnvironment, NSMenuDelegate {
     guard panel.runModal() == .OK, let url = panel.url else { return }
     install(url)
   }
+  /// Install from a Chrome Web Store / Firefox Add-ons link or a Chrome extension id: downloaded over HTTPS from the official hosts and verified first.
+  func storeFlow() {
+    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24)); field.placeholderString = "Web Store or Add-ons link, or a Chrome extension id"
+    let a = NSAlert(); a.messageText = "Install from a store"; a.informativeText = "Paste a Chrome Web Store link (chromewebstore.google.com) or a Firefox Add-ons link (addons.mozilla.org). The download is checked before anything is installed."
+    a.accessoryView = field; a.addButton(withTitle: "Download"); a.addButton(withTitle: "Cancel")
+    guard a.runModal() == .alertFirstButtonReturn else { return }
+    guard let src = ExtensionStore.parse(field.stringValue) else { alert("Not a store link", "Only chromewebstore.google.com and addons.mozilla.org links (or a 32-letter Chrome extension id) are accepted."); return }
+    let dir = root.appendingPathComponent(".downloads", isDirectory: true)
+    Task { @MainActor in
+      do { let file = try await ExtensionStore.download(src, into: dir); install(file) }
+      catch { alert("Download failed", "\(error)\n\nNothing was installed.") }
+    }
+  }
   func install(_ url: URL) {
     let root = self.root
     Task { @MainActor in
@@ -74,15 +88,26 @@ final class ExtensionsUI: NSObject, ExtensionEnvironment, NSMenuDelegate {
     }
   }
   private func confirm(_ p: ExtensionPackage.Prepared) -> Bool {
+    func safe(_ t: String, max: Int = 80) -> String { ExtensionPackage.displaySafe(t, max: max) }
+    let old = host.record(p.id)
     var lines: [String] = []
-    let broad = p.hostPatterns.contains { $0 == "<all_urls>" || $0.hasPrefix("*://*/") || $0 == "*://*/*" }
-    if broad { lines.append("• Read and change data on ALL websites you visit") }
-    else { lines += p.hostPatterns.prefix(8).map { "• Read and change data on \($0)" } }
-    lines += p.permissions.map { "• " + Self.describe($0) }
-    lines += p.notes.map { "ℹ︎ " + $0 }
-    let a = NSAlert(); a.messageText = "Add “\(p.name)” \(p.version)?"
-    a.informativeText = (p.isFirefox ? "Firefox extension. " : "Chrome extension. ") + "It will be able to:\n\n" + (lines.isEmpty ? "(no special access)" : lines.joined(separator: "\n"))
-    a.addButton(withTitle: "Add Extension"); a.addButton(withTitle: "Cancel"); a.alertStyle = broad ? .warning : .informational
+    let broad = p.hostPatterns.contains(where: ExtensionPackage.isBroadHost)
+    if broad { lines.append("• Read and change data on ALL (or nearly all) websites you visit") }
+    for h in p.hostPatterns where !ExtensionPackage.isBroadHost(h) { lines.append("• Read and change data on \(safe(h, max: 120))") }       // every granted pattern is listed
+    lines += p.permissions.map { "• " + Self.describe(safe($0)) }
+    lines += p.notes.map { "ℹ︎ " + safe($0, max: 300) }
+    var head = (p.isFirefox ? "Firefox extension" : "Chrome extension") + " · id \(safe(p.id, max: 60))\n"
+    var title = "Add “\(safe(p.name))” \(safe(p.version, max: 20))?"
+    if let o = old {
+      title = "Replace “\(safe(o.name))” \(safe(o.version, max: 20)) with “\(safe(p.name))” \(safe(p.version, max: 20))?"
+      let newHosts = p.hostPatterns.filter { !o.hosts.contains($0) }, newPerms = p.permissions.filter { !o.permissions.contains($0) }
+      head += (newHosts.isEmpty && newPerms.isEmpty) ? "Same access as the installed version.\n" : "⚠︎ It asks for MORE access than the installed version: \((newHosts + newPerms).map { safe($0, max: 60) }.joined(separator: ", "))\n"
+    }
+    let a = NSAlert(); a.messageText = title; a.informativeText = head + "\nIt will be able to:"
+    let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 420, height: 180)); tv.isEditable = false; tv.string = lines.isEmpty ? "(no special access)" : lines.joined(separator: "\n")
+    tv.font = .systemFont(ofSize: 12); tv.drawsBackground = false
+    let sc = NSScrollView(frame: tv.frame); sc.documentView = tv; sc.hasVerticalScroller = true; sc.borderType = .bezelBorder; a.accessoryView = sc
+    a.addButton(withTitle: old == nil ? "Add Extension" : "Replace"); a.addButton(withTitle: "Cancel"); a.alertStyle = broad ? .warning : .informational
     return a.runModal() == .alertFirstButtonReturn
   }
   static func describe(_ perm: String) -> String {
@@ -112,7 +137,8 @@ final class ExtensionsUI: NSObject, ExtensionEnvironment, NSMenuDelegate {
   }
   func build(_ m: NSMenu) {
     m.removeAllItems()
-    let i = NSMenuItem(title: "Install Extension…", action: #selector(installClicked), keyEquivalent: ""); i.target = self; m.addItem(i)
+    let i = NSMenuItem(title: "Install Extension from File…", action: #selector(installClicked), keyEquivalent: ""); i.target = self; m.addItem(i)
+    let st = NSMenuItem(title: "Install from Web Store…", action: #selector(storeClicked), keyEquivalent: ""); st.target = self; m.addItem(st)
     if !host.records.isEmpty { m.addItem(.separator()) }
     for r in host.records {
       let sub = NSMenu()
@@ -125,6 +151,7 @@ final class ExtensionsUI: NSObject, ExtensionEnvironment, NSMenuDelegate {
   }
   func menuNeedsUpdate(_ menu: NSMenu) { build(menu) }
   @objc private func installClicked() { installFlow() }
+  @objc private func storeClicked() { storeFlow() }
   @objc private func openClicked(_ s: NSMenuItem) {
     guard let id = s.representedObject as? String, let c = app.keyController, let sel = c.selected, let p = profile(of: sel) else { return }
     host.performAction(id, tab: engine.tab(sel) as? WebKitTab, profile: p)

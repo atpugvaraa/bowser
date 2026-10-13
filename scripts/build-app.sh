@@ -21,7 +21,7 @@ PROF="$R/scripts/signing/embedded.provisionprofile"; ENT="$R/scripts/signing/Bro
 if [[ -n "$ID" ]]; then
   codesign --force --options runtime --entitlements "$ENT" -s "$ID" "$A" 2>&1 | tail -2 && echo "signed as: $ID" >&2
 else
-  codesign -s - -f "$A" >/dev/null 2>&1; echo "ad-hoc signed (no signing identity in the keychain: see docs/research/005-signing-passwords-extensions.md)" >&2
+  codesign --force --options runtime --entitlements "$ENT" -s - "$A" >/dev/null 2>&1; echo "ad-hoc signed (hardened runtime + camera/mic entitlements; macOS will re-ask permission after every rebuild) ; no identity in the keychain: see docs/SIGNING.md)" >&2
 fi
 codesign -dv "$A" 2>&1 | grep -E "Identifier|flags|Authority" >&2
 echo "$A"
