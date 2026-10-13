@@ -18,7 +18,7 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 /// Safety contract: an existing database must be `load()`ed successfully (or `quarantineAndReset()` after a failed load)
 /// before `save()` is allowed, so a read failure can never be followed by an empty save that wipes the user's sessions.
 public final class Store: @unchecked Sendable {
-  public static let schemaVersion = 5
+  public static let schemaVersion = 6
   private var db: OpaquePointer?
   private let lock = NSLock()
   private let path: String
@@ -96,6 +96,13 @@ public final class Store: @unchecked Sendable {
         """)
       }
       if v < 5 { try execLocked("ALTER TABLE window ADD COLUMN frame TEXT") }     // v5: window position/size
+      if v < 6 {                                                                   // v6: profiles, space icon and colorHue
+        try execLocked("""
+        CREATE TABLE profile(id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT, ord INTEGER NOT NULL);
+        ALTER TABLE space ADD COLUMN icon TEXT;
+        ALTER TABLE space ADD COLUMN color_hue REAL;
+        """)
+      }
       if v < Store.schemaVersion { try execLocked("PRAGMA user_version = \(Store.schemaVersion)") }
     }
     return wasFresh
@@ -106,9 +113,14 @@ public final class Store: @unchecked Sendable {
     guard canSave else { throw StoreError.mustLoadFirst }
     let bad = s.validate(); if !bad.isEmpty { throw StoreError.corrupt("refusing to save invalid state: \(bad[0])") }
     try transaction {
-      try execLocked("DELETE FROM window_last; DELETE FROM window; DELETE FROM tab; DELETE FROM space; DELETE FROM archive;")
+      try execLocked("DELETE FROM window_last; DELETE FROM window; DELETE FROM tab; DELETE FROM space; DELETE FROM archive; DELETE FROM profile;")
+      for (i, p) in s.profiles.enumerated() {
+        try run("INSERT INTO profile(id,name,icon,ord) VALUES(?,?,?,?)",
+                [.text(p.id.raw.uuidString), .text(p.name), p.icon.map { .text($0) } ?? .null, .int(i)])
+      }
       for (i, sp) in s.spaces.enumerated() {
-        try run("INSERT INTO space(id,name,profile,ord) VALUES(?,?,?,?)", [.text(sp.id.raw.uuidString), .text(sp.name), .text(sp.profile.raw.uuidString), .int(i)])
+        try run("INSERT INTO space(id,name,profile,ord,icon,color_hue) VALUES(?,?,?,?,?,?)",
+                [.text(sp.id.raw.uuidString), .text(sp.name), .text(sp.profile.raw.uuidString), .int(i), .text(sp.icon), sp.colorHue.map { .real($0) } ?? .null])
         for (j, tid) in sp.tabOrder.enumerated() {
           let t = s.tabs[tid]!
           try run("INSERT INTO tab(id,space,url,title,pinned,last_active,ord) VALUES(?,?,?,?,?,?,?)",
@@ -132,14 +144,28 @@ public final class Store: @unchecked Sendable {
   public func load() throws -> BrowserState {
     lock.lock(); defer { lock.unlock() }
     func uuid(_ s: String) throws -> UUID { guard let u = UUID(uuidString: s) else { throw StoreError.corrupt("bad uuid \(s)") }; return u }
+    var profiles: [ProfileRecord] = []
     var spaces: [Space] = [], tabs: [TabRecord] = [], windows: [BrowserWindow] = [], archive: [ArchivedTab] = []
     var order: [SpaceID: [TabID]] = [:]
     var err: Error?
     try execLocked("BEGIN")
     defer { if (try? execLocked("COMMIT")) == nil { try? execLocked("ROLLBACK") } }
-    try queryLocked("SELECT id,name,profile FROM space ORDER BY ord") { st in
+    try queryLocked("SELECT id,name,icon FROM profile ORDER BY ord") { st in
       if err != nil { return }
-      do { spaces.append(Space(id: SpaceID(try uuid(col(st, 0))), name: col(st, 1), profile: ProfileID(try uuid(col(st, 2))))) } catch { err = error }
+      do {
+        let pid = ProfileID(try uuid(col(st, 0))), name = col(st, 1)
+        let icon: String? = sqlite3_column_type(st, 2) == SQLITE_NULL ? nil : col(st, 2)
+        profiles.append(ProfileRecord(id: pid, name: name, icon: icon))
+      } catch { err = error }
+    }
+    try queryLocked("SELECT id,name,profile,icon,color_hue FROM space ORDER BY ord") { st in
+      if err != nil { return }
+      do {
+        let sid = SpaceID(try uuid(col(st, 0))), name = col(st, 1), pid = ProfileID(try uuid(col(st, 2)))
+        let icon = sqlite3_column_type(st, 3) == SQLITE_NULL ? "🪐" : col(st, 3)
+        let hue: Double? = sqlite3_column_type(st, 4) == SQLITE_NULL ? nil : sqlite3_column_double(st, 4)
+        spaces.append(Space(id: sid, name: name, icon: icon.isEmpty ? "🪐" : icon, profile: pid, colorHue: hue))
+      } catch { err = error }
     }
     try queryLocked("SELECT id,space,url,title,pinned,last_active FROM tab ORDER BY space, ord") { st in
       if err != nil { return }
@@ -178,7 +204,7 @@ public final class Store: @unchecked Sendable {
     }
     if let err { throw err }
     for i in spaces.indices { spaces[i].tabOrder = order[spaces[i].id] ?? [] }
-    let state = BrowserState(spaces: spaces, tabs: tabs, windows: windows, archive: archive)
+    let state = BrowserState(profiles: profiles, spaces: spaces, tabs: tabs, windows: windows, archive: archive)
     let bad = state.validate(); if !bad.isEmpty { throw StoreError.corrupt(bad[0]) }
     _canSave = true
     return state
@@ -202,7 +228,7 @@ public final class Store: @unchecked Sendable {
       }
     } else { chmod(dest, 0o600); if let fh = FileHandle(forWritingAtPath: dest) { try? fh.synchronize(); try? fh.close() } }
     try execLocked("BEGIN IMMEDIATE")
-    do { try execLocked("DELETE FROM window_last; DELETE FROM window; DELETE FROM tab; DELETE FROM space; DELETE FROM archive; DELETE FROM tab_state;"); try execLocked("COMMIT") } catch { try? execLocked("ROLLBACK"); throw error }
+    do { try execLocked("DELETE FROM window_last; DELETE FROM window; DELETE FROM tab; DELETE FROM space; DELETE FROM archive; DELETE FROM tab_state; DELETE FROM profile;"); try execLocked("COMMIT") } catch { try? execLocked("ROLLBACK"); throw error }
     _canSave = true
     return dest
   }

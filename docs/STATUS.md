@@ -31,7 +31,8 @@ Legend: **implemented** = built and covered by an automated check; **partial** =
 | Signed build | partial | hardened runtime + entitlements, ad-hoc; real certificate needs the owner's Apple ID in Xcode (docs/SIGNING.md) |
 | Browser identity (User-Agent) | implemented | default Safari (fixes pages served in legacy form to a bare WebKit view); choose Chrome/Firefox/Edge in Settings; docs/features/browser-identity.md |
 | Light/dark for websites | implemented | follows macOS by default (live, incl. sunset switch); force light/dark in Settings; no white flash; docs/features/page-appearance.md |
-| Sidebar / Arc-style UI | **first pass only; owner says it does not match Arc** | translucent sidebar, rounded page card, space tint, favicons; needs a redesign from owner screenshots (docs/HANDOFF.md, research/009, 010) |
+| Sidebar / Arc-style UI | implemented | 1:1 Arc layout hierarchy: top nav (⌘S toggle, back, fwd, reload), URL bar, favorites hint tray, space/profile header, collapsible folders, indented child tabs, divider, + New Tab, unpinned tab list, bottom spaces dock with extensions + space pills + add space; floating Command Bar (⌘T) with tab matching & Switch to Tab pills |
+| Multi-profile & Spaces (Arc-style) | implemented | first-class ProfileRecord, multiple spaces per profile, schema v6 migration, space icons/hues, profile switching dialog with session reload |
 | Tab favicons | implemented | site icon, empty square when none; stored in the app data folder |
 | Boosts | not started | per-site CSS/JS per space (docs/research/010) |
 | Speed pass (cache, preconnect, warm-up) | implemented | docs/results/speed-pass-20261013.md: BBC repeat visit 2.4 s -> 0.4 s, preconnect cuts first byte up to 80% |

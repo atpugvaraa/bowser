@@ -43,8 +43,31 @@ public final class BrowserEngine {
   public func tab(_ id: TabID) -> (any EngineTab)? { tabs[id] }
   public var liveCount: Int { lifecycle.liveCount }
 
+  // MARK: profiles
+  public var profiles: [ProfileRecord] { state.profiles }
+  public func profile(_ id: ProfileID) -> ProfileRecord? { state.profile(id) }
+  @discardableResult public func addProfile(name: String, icon: String? = nil) -> ProfileID {
+    let p = state.addProfile(name: name, icon: icon); commit(); return p
+  }
+  public func updateProfile(_ id: ProfileID, name: String? = nil, icon: String? = nil) {
+    state.updateProfile(id, name: name, icon: icon); commit()
+  }
+  @discardableResult public func deleteProfile(_ id: ProfileID) -> Bool {
+    let r = state.deleteProfile(id)
+    if r { commit() }
+    return r
+  }
+
   // MARK: spaces / windows
-  @discardableResult public func addSpace(name: String, profile: ProfileID) -> SpaceID { let s = state.addSpace(name: name, profile: profile); commit(); return s }
+  @discardableResult public func addSpace(name: String, icon: String = "🪐", profile: ProfileID, colorHue: Double? = nil) -> SpaceID {
+    let s = state.addSpace(name: name, icon: icon, profile: profile, colorHue: colorHue); commit(); return s
+  }
+  @discardableResult public func addSpace(name: String, profile: ProfileID) -> SpaceID {
+    addSpace(name: name, icon: "🪐", profile: profile, colorHue: nil)
+  }
+  public func updateSpace(_ id: SpaceID, name: String? = nil, icon: String? = nil, profile: ProfileID? = nil, colorHue: Double?? = nil) {
+    state.updateSpace(id, name: name, icon: icon, profile: profile, colorHue: colorHue); commit()
+  }
   @discardableResult public func deleteSpace(_ id: SpaceID) -> Bool { let r = state.deleteSpace(id) != nil; commit(); return r }
   @discardableResult public func openWindow(space: SpaceID) -> WindowID? {
     let w = state.openWindow(space: space); commit()
@@ -103,6 +126,26 @@ public final class BrowserEngine {
   }
   @discardableResult public func detachTab(_ id: TabID) -> WindowID? {
     let w = state.detachTab(id); commit(); if w != nil { lifecycle.activate(id) }; return w
+  }
+
+  // MARK: folders
+  @discardableResult public func addFolder(in space: SpaceID, name: String) -> FolderID? {
+    let f = state.addFolder(in: space, name: name); commit(); return f
+  }
+  public func updateFolder(_ id: FolderID, name: String? = nil, isExpanded: Bool? = nil) {
+    state.updateFolder(id, name: name, isExpanded: isExpanded); commit()
+  }
+  public func toggleFolderExpanded(_ id: FolderID) {
+    state.toggleFolderExpanded(id); commit()
+  }
+  @discardableResult public func deleteFolder(_ id: FolderID) -> Bool {
+    let r = state.deleteFolder(id); commit(); return r
+  }
+  public func setTabFolder(tab: TabID, folder: FolderID?) {
+    state.setTabFolder(tab: tab, folder: folder); commit()
+  }
+  public func setTabPinned(_ id: TabID, pinned: Bool) {
+    state.setTabPinned(id, pinned: pinned); commit()
   }
 
   /// Select a tab in a window. If another window already shows it, the UI should focus that window (returned).

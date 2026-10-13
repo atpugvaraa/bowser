@@ -24,6 +24,7 @@ enum MainMenu {
       add(m, "New Tab", #selector(AppDelegate.newTab(_:)), "t")
       add(m, "New Window", #selector(AppDelegate.newWindow(_:)), "n")
       add(m, "New Space…", #selector(AppDelegate.newSpace(_:)), "n", [.command, .shift])
+      add(m, "Edit Space…", #selector(AppDelegate.editSpace(_:)))
       add(m, "Open Location…", #selector(AppDelegate.focusAddress(_:)), "l")
       add(m, "Quick Open…", #selector(AppDelegate.quickOpenCommand(_:)), "k")
       m.addItem(.separator())
@@ -44,6 +45,8 @@ enum MainMenu {
       add(m, "Find Previous", #selector(NSResponder.performTextFinderAction(_:)), "g", [.command, .shift], tag: NSTextFinder.Action.previousMatch.rawValue, target: nil)
     }
     submenu("View") { m in
+      add(m, "Toggle Sidebar", #selector(AppDelegate.toggleSidebar(_:)), "s")
+      m.addItem(.separator())
       add(m, "Reload Page", #selector(AppDelegate.reloadPage(_:)), "r")
       add(m, "Stop", #selector(AppDelegate.stopPage(_:)), ".")
       m.addItem(.separator())

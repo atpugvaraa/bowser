@@ -148,10 +148,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     blocking = b
   }
 
-  // MARK: menu actions (targets are nil-targeted or this delegate)
   @objc func newTab(_ s: Any?) {
-    if let c = keyController { c.newTab() }
-    else if let sp = engine.state.spaces.first, let w = engine.openWindow(space: sp.id) { _ = engine.newTab(in: sp.id, url: "about:blank", window: w); controllers[w]?.focusAddress() }   // no window open: make one
+    if let c = keyController {
+      c.newTab()
+      if !isSelfTest { c.showCommandBar() }
+    }
+    else if let sp = engine.state.spaces.first, let w = engine.openWindow(space: sp.id) {
+      _ = engine.newTab(in: sp.id, url: "about:blank", window: w)
+      if !isSelfTest { controllers[w]?.showCommandBar() } else { controllers[w]?.focusAddress() }
+    }
   }
   @objc func closeTab(_ s: Any?) { keyController?.closeSelectedTab() }
   @objc func reopenClosedTab(_ s: Any?) { keyController?.reopenClosedTab() }
@@ -166,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   @objc func previousTab(_ s: Any?) { keyController?.selectAdjacent(-1) }
   @objc func selectTabNumber(_ s: NSMenuItem) { keyController?.selectTab(number: s.tag) }
   @objc func newSpace(_ s: Any?) { keyController?.newSpacePrompt() }
+  @objc func editSpace(_ s: Any?) { keyController?.editSpacePrompt() }
   @objc func switchSpace(_ s: NSMenuItem) { keyController?.switchSpace(index: s.tag) }
   @objc func sleepOtherTabs(_ s: Any?) { keyController?.sleepOthers() }
   @objc func quickOpenCommand(_ s: Any?) { keyController?.showQuickOpen() }
@@ -179,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   var settingsController: SettingsWindowController { if settings == nil { settings = SettingsWindowController(app: self) }; return settings! }
   @objc func showDownloads(_ s: Any?) { NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]) }
   @objc func showResources(_ s: Any?) { keyController?.showResourceSummary() }
+  @objc func toggleSidebar(_ s: Any?) { keyController?.toggleSidebar() }
 
   // MARK: menus
   /// The Spaces menu lists the current spaces (⌃1…⌃9 switch).
@@ -199,12 +206,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
       it.tag = i; it.target = self; it.state = keyController?.space == sp.id ? .on : .off; menu.addItem(it)
     }
     menu.addItem(.separator()); let n = NSMenuItem(title: "New Space…", action: #selector(newSpace(_:)), keyEquivalent: ""); n.target = self; menu.addItem(n)
+    let ed = NSMenuItem(title: "Edit Space…", action: #selector(editSpace(_:)), keyEquivalent: ""); ed.target = self; menu.addItem(ed)
   }
   func validateMenuItem(_ item: NSMenuItem) -> Bool {
     guard engine != nil else { return false }                       // still launching
     if item.action == #selector(bookmarkPage(_:)) { item.title = keyController?.selected.map { engine.isBookmarked(tab: $0) } == true ? "Remove Bookmark" : "Bookmark This Page" }
     guard let c = keyController, let t = c.selected.flatMap({ engine.tab($0) }) else {
-      return [#selector(newTab(_:)), #selector(newWindow(_:)), #selector(newSpace(_:)), #selector(showDownloads(_:)), #selector(closeWindow(_:))].contains(item.action!) || item.action == #selector(switchSpace(_:))
+      return [#selector(newTab(_:)), #selector(newWindow(_:)), #selector(newSpace(_:)), #selector(editSpace(_:)), #selector(showDownloads(_:)), #selector(closeWindow(_:)), #selector(toggleSidebar(_:))].contains(item.action!) || item.action == #selector(switchSpace(_:))
     }
     switch item.action {
     case #selector(goBack(_:)): return t.canGoBack

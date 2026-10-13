@@ -98,7 +98,7 @@ public final class SimulatedPhone: @unchecked Sendable {
     var adv = Hybrid.encryptAdvert(plaintext: plain, eidKey: eidKey)!
     if corruptAdvert { adv[19] ^= 1 }
     ble.emit(adv)
-    guard let url = Hybrid.tunnelURL(domain: Hybrid.tunnelDomain(domainID)!, routingID: routing, tunnelID: tunnelID) else { throw HybridError.badMessage("tunnel") }
+    guard let dom = Hybrid.tunnelDomain(domainID), let url = Hybrid.tunnelURL(domain: dom, routingID: routing, tunnelID: tunnelID) else { throw HybridError.badMessage("tunnel") }
     let tunnel = try await hub.connect(url)
     defer { tunnel.close() }
     let hs = Noise.Responder(initiatorStatic: pub, psk: Hybrid.derive(secret, .psk, salt: plain, count: 32))

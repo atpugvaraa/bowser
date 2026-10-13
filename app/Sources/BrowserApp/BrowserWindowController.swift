@@ -5,22 +5,42 @@ import EngineWebKit
 import Foundation
 import WebKit
 
+enum PinnedItem: Equatable {
+  case folder(FolderID, name: String, isExpanded: Bool)
+  case tab(TabID, inFolder: Bool)
+}
+
 @MainActor
 final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSMenuDelegate {
   let id: WindowID
   unowned let app: AppDelegate
   let window: NSWindow
   private let spacePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-  private let table = NSTableView()
+  private let pinnedTable = ArcTableView()
+  private let pinnedScroll = NSScrollView()
+  private var pinnedHeightConstraint: NSLayoutConstraint?
+  private var pinnedItems: [PinnedItem] = []
+  private let table = ArcTableView()
+  private let sidebar = SidebarView()
+  private let sidebarToggleBtn = NSButton()
+  private let favoritesTray = FavoritesTrayView()
+  private let spacesDock = SpacesDockView()
+  let commandBarOverlay = CommandBarOverlayView()
+  private let divider = SidebarDividerView()
+  private let newTabButton = NewTabHoverButton()
   private let backButton = NSButton(), forwardButton = NSButton(), reloadButton = NSButton()
   let addressField = NSTextField()
-  let extButton = NSButton()
+  var extButton: NSButton { spacesDock.extButton }
   private let progress = NSProgressIndicator()
   private let content = NSView()
   private var rows: [TabID] = []
   private var shownTab: TabID?
   private var updatingSelection = false
   private var closingFromEngine = false
+  private var isSidebarVisible = true
+  private var savedSidebarWidth: CGFloat = 260
+  private var sidebarLeadingConstraint: NSLayoutConstraint?
+  private var sidebarWidthConstraint: NSLayoutConstraint?
   private var engine: BrowserEngine { app.engine }
 
   var selected: TabID? { engine.state.windows[id]?.selected }
@@ -31,6 +51,14 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     self.id = id; self.app = app
     window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     super.init()
+    sidebar.controller = self
+    pinnedTable.controller = self
+    pinnedTable.target = self
+    pinnedTable.action = #selector(pinnedTableClicked)
+    table.controller = self
+    spacesDock.controller = self
+    newTabButton.target = self
+    newTabButton.action = #selector(newTabClicked)
     window.delegate = self; window.isReleasedWhenClosed = false; window.tabbingMode = .disallowed
     window.minSize = NSSize(width: 700, height: 420)
     buildUI()
@@ -54,66 +82,166 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   func closeFromEngine() { if !closingFromEngine { closingFromEngine = true; window.close() } }
 
   // MARK: UI construction
-  private let mainTint = TintView(), sidebarTint = TintView(), cardOverlay = CardFrameOverlay()
+  private let mainTint = TintView(), cardOverlay = CardFrameOverlay()
   private func buildUI() {
     window.styleMask.insert(.fullSizeContentView)
     window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
-    let root = NSView(); window.contentView = root
+    let root = FlippedView(); window.contentView = root
 
-    // Sidebar: translucent, tinted by the space colour, traffic lights sit in its top margin.
-    let sidebar = NSVisualEffectView(); sidebar.material = .sidebar; sidebar.blendingMode = .behindWindow; sidebar.state = .followsWindowActiveState; sidebar.translatesAutoresizingMaskIntoConstraints = false
-    sidebarTint.alphaValue = 0.35; sidebarTint.translatesAutoresizingMaskIntoConstraints = false
-    sidebar.addSubview(sidebarTint)
+    // Sidebar: solid matte charcoal surface, traffic lights sit in its top margin.
+    sidebar.translatesAutoresizingMaskIntoConstraints = false
     func style(_ b: NSButton, _ symbol: String, _ action: Selector, _ tip: String) {
       b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip); b.isBordered = false; b.imagePosition = .imageOnly; b.contentTintColor = .secondaryLabelColor
       b.target = self; b.action = action; b.toolTip = tip; b.translatesAutoresizingMaskIntoConstraints = false
     }
+    style(sidebarToggleBtn, "sidebar.left", #selector(toggleSidebarClicked), "Toggle Sidebar")
     style(backButton, "chevron.left", #selector(backClicked), "Back"); style(forwardButton, "chevron.right", #selector(forwardClicked), "Forward"); style(reloadButton, "arrow.clockwise", #selector(reloadClicked), "Reload")
-    style(extButton, "puzzlepiece.extension", #selector(extensionsClicked), "Extensions")
-    let nav = NSStackView(views: [backButton, forwardButton, reloadButton, NSView(), extButton]); nav.orientation = .horizontal; nav.spacing = 10; nav.translatesAutoresizingMaskIntoConstraints = false
+    let nav = NSStackView(views: [sidebarToggleBtn, NSView(), backButton, forwardButton, reloadButton]); nav.orientation = .horizontal; nav.spacing = 8; nav.translatesAutoresizingMaskIntoConstraints = false
     addressField.placeholderString = "Search or enter website"; addressField.bezelStyle = .roundedBezel; addressField.delegate = self; addressField.font = .systemFont(ofSize: 13)
     addressField.lineBreakMode = .byTruncatingTail; addressField.translatesAutoresizingMaskIntoConstraints = false; addressField.focusRingType = .none
+    favoritesTray.translatesAutoresizingMaskIntoConstraints = false
+    favoritesTray.onDismiss = { [weak self] in self?.favoritesTray.isHidden = true }
     spacePopup.target = self; spacePopup.action = #selector(spaceChanged(_:)); spacePopup.translatesAutoresizingMaskIntoConstraints = false; spacePopup.isBordered = false; spacePopup.font = .systemFont(ofSize: 12, weight: .semibold)
+    divider.translatesAutoresizingMaskIntoConstraints = false
+    newTabButton.translatesAutoresizingMaskIntoConstraints = false
+    spacesDock.translatesAutoresizingMaskIntoConstraints = false
+    commandBarOverlay.translatesAutoresizingMaskIntoConstraints = false
+    commandBarOverlay.isHidden = true
+    commandBarOverlay.commandBar.onDismiss = { [weak self] in self?.dismissCommandBar() }
+    commandBarOverlay.commandBar.onSelect = { [weak self] item in self?.handleCommandBarSelect(item) }
+
+    let pCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("pinned")); pCol.resizingMask = .autoresizingMask; pinnedTable.addTableColumn(pCol)
+    pinnedTable.headerView = nil; pinnedTable.rowHeight = 32; pinnedTable.style = .plain; pinnedTable.dataSource = self; pinnedTable.delegate = self; pinnedTable.intercellSpacing = NSSize(width: 0, height: 2)
+    pinnedTable.allowsEmptySelection = true; pinnedTable.allowsMultipleSelection = false; pinnedTable.backgroundColor = .clear; pinnedTable.selectionHighlightStyle = .regular
+    let pinnedMenu = NSMenu(); pinnedMenu.delegate = self; pinnedTable.menu = pinnedMenu
+    pinnedScroll.documentView = pinnedTable; pinnedScroll.hasVerticalScroller = true; pinnedScroll.drawsBackground = false; pinnedScroll.translatesAutoresizingMaskIntoConstraints = false; pinnedScroll.scrollerStyle = .overlay
+    pinnedScroll.isHidden = true
+
     let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tab")); col.resizingMask = .autoresizingMask; table.addTableColumn(col)
-    table.headerView = nil; table.rowHeight = 32; table.style = .sourceList; table.dataSource = self; table.delegate = self; table.intercellSpacing = NSSize(width: 0, height: 2)
-    table.allowsEmptySelection = true; table.allowsMultipleSelection = false; table.backgroundColor = .clear
+    table.headerView = nil; table.rowHeight = 32; table.style = .plain; table.dataSource = self; table.delegate = self; table.intercellSpacing = NSSize(width: 0, height: 2)
+    table.allowsEmptySelection = true; table.allowsMultipleSelection = false; table.backgroundColor = .clear; table.selectionHighlightStyle = .regular
     let menu = NSMenu(); menu.delegate = self; table.menu = menu
     let scroll = NSScrollView(); scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.drawsBackground = false; scroll.translatesAutoresizingMaskIntoConstraints = false; scroll.scrollerStyle = .overlay
-    let newTabButton = NSButton(title: "New Tab", target: self, action: #selector(newTabClicked)); newTabButton.isBordered = false
-    newTabButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab"); newTabButton.imagePosition = .imageLeading; newTabButton.contentTintColor = .secondaryLabelColor; newTabButton.alignment = .left; newTabButton.translatesAutoresizingMaskIntoConstraints = false
-    [nav, addressField, spacePopup, scroll, newTabButton].forEach { sidebar.addSubview($0) }
+
+    [nav, addressField, favoritesTray, spacePopup, pinnedScroll, divider, newTabButton, scroll, spacesDock].forEach { sidebar.addSubview($0) }
+
+    sidebar.setAccessibilityIdentifier("ArcSidebar")
+    sidebarToggleBtn.setAccessibilityIdentifier("ArcSidebarToggle")
+    addressField.setAccessibilityIdentifier("ArcAddressField")
+    favoritesTray.setAccessibilityIdentifier("ArcFavoritesTray")
+    spacePopup.setAccessibilityIdentifier("ArcSpacePopup")
+    newTabButton.setAccessibilityIdentifier("ArcNewTabButton")
+    pinnedTable.setAccessibilityIdentifier("ArcPinnedTable")
+    table.setAccessibilityIdentifier("ArcTabTable")
+    spacesDock.setAccessibilityIdentifier("ArcSpacesDock")
+    commandBarOverlay.commandBar.setAccessibilityIdentifier("ArcCommandBar")
+    commandBarOverlay.commandBar.textField.setAccessibilityIdentifier("ArcCommandBarField")
 
     // Page area: a coloured frame with the page as a rounded card. The card's corners are painted over the web view (see CardFrameOverlay).
     progress.style = .bar; progress.isIndeterminate = false; progress.minValue = 0; progress.maxValue = 1; progress.controlSize = .small; progress.isHidden = true; progress.translatesAutoresizingMaskIntoConstraints = false
     content.translatesAutoresizingMaskIntoConstraints = false
     mainTint.translatesAutoresizingMaskIntoConstraints = false; cardOverlay.translatesAutoresizingMaskIntoConstraints = false
-    let main = NSView(); main.translatesAutoresizingMaskIntoConstraints = false
+    let main = FlippedView(); main.translatesAutoresizingMaskIntoConstraints = false
     [mainTint, content, progress, cardOverlay].forEach { main.addSubview($0) }
-    let split = NSSplitView(); split.isVertical = true; split.dividerStyle = .thin; split.translatesAutoresizingMaskIntoConstraints = false
-    split.addArrangedSubview(sidebar); split.addArrangedSubview(main)
-    root.addSubview(split)
+
+    root.addSubview(sidebar)
+    root.addSubview(main)
+    root.addSubview(commandBarOverlay)
+
+    let lead = sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor)
+    let width = sidebar.widthAnchor.constraint(equalToConstant: savedSidebarWidth)
+    self.sidebarLeadingConstraint = lead
+    self.sidebarWidthConstraint = width
+
+    let pHeight = pinnedScroll.heightAnchor.constraint(equalToConstant: 0)
+    pHeight.isActive = true
+    self.pinnedHeightConstraint = pHeight
+
     let pad: CGFloat = 8
     NSLayoutConstraint.activate([
-      split.leadingAnchor.constraint(equalTo: root.leadingAnchor), split.trailingAnchor.constraint(equalTo: root.trailingAnchor), split.topAnchor.constraint(equalTo: root.topAnchor), split.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-      sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 200), sidebar.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
-      sidebarTint.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor), sidebarTint.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor), sidebarTint.topAnchor.constraint(equalTo: sidebar.topAnchor), sidebarTint.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor),
-      nav.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 38), nav.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14), nav.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
-      addressField.topAnchor.constraint(equalTo: nav.bottomAnchor, constant: 10), addressField.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10), addressField.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10), addressField.heightAnchor.constraint(equalToConstant: 30),
-      spacePopup.topAnchor.constraint(equalTo: addressField.bottomAnchor, constant: 10), spacePopup.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 8), spacePopup.trailingAnchor.constraint(lessThanOrEqualTo: sidebar.trailingAnchor, constant: -8),
-      scroll.topAnchor.constraint(equalTo: spacePopup.bottomAnchor, constant: 4), scroll.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 4), scroll.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -4), scroll.bottomAnchor.constraint(equalTo: newTabButton.topAnchor, constant: -6),
-      newTabButton.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14), newTabButton.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14), newTabButton.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -12), newTabButton.heightAnchor.constraint(equalToConstant: 28),
-      mainTint.leadingAnchor.constraint(equalTo: main.leadingAnchor), mainTint.trailingAnchor.constraint(equalTo: main.trailingAnchor), mainTint.topAnchor.constraint(equalTo: main.topAnchor), mainTint.bottomAnchor.constraint(equalTo: main.bottomAnchor),
-      content.topAnchor.constraint(equalTo: main.topAnchor, constant: pad), content.leadingAnchor.constraint(equalTo: main.leadingAnchor), content.trailingAnchor.constraint(equalTo: main.trailingAnchor, constant: -pad), content.bottomAnchor.constraint(equalTo: main.bottomAnchor, constant: -pad),
-      cardOverlay.leadingAnchor.constraint(equalTo: main.leadingAnchor), cardOverlay.trailingAnchor.constraint(equalTo: main.trailingAnchor), cardOverlay.topAnchor.constraint(equalTo: main.topAnchor), cardOverlay.bottomAnchor.constraint(equalTo: main.bottomAnchor),
-      progress.topAnchor.constraint(equalTo: content.topAnchor), progress.leadingAnchor.constraint(equalTo: content.leadingAnchor), progress.trailingAnchor.constraint(equalTo: content.trailingAnchor), progress.heightAnchor.constraint(equalToConstant: 3),
+      lead,
+      width,
+      sidebar.topAnchor.constraint(equalTo: root.topAnchor),
+      sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+
+      nav.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 38),
+      nav.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 70),
+      nav.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
+
+      addressField.topAnchor.constraint(equalTo: nav.bottomAnchor, constant: 10),
+      addressField.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
+      addressField.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
+      addressField.heightAnchor.constraint(equalToConstant: 30),
+
+      favoritesTray.topAnchor.constraint(equalTo: addressField.bottomAnchor, constant: 8),
+      favoritesTray.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
+      favoritesTray.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
+      favoritesTray.heightAnchor.constraint(equalToConstant: 48),
+
+      spacePopup.topAnchor.constraint(equalTo: favoritesTray.bottomAnchor, constant: 8),
+      spacePopup.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 8),
+      spacePopup.trailingAnchor.constraint(lessThanOrEqualTo: sidebar.trailingAnchor, constant: -8),
+
+      pinnedScroll.topAnchor.constraint(equalTo: spacePopup.bottomAnchor, constant: 4),
+      pinnedScroll.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 4),
+      pinnedScroll.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -4),
+
+      divider.topAnchor.constraint(equalTo: pinnedScroll.bottomAnchor, constant: 4),
+      divider.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
+      divider.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+      divider.heightAnchor.constraint(equalToConstant: 1),
+
+      newTabButton.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 6),
+      newTabButton.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
+      newTabButton.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
+      newTabButton.heightAnchor.constraint(equalToConstant: 28),
+
+      spacesDock.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -4),
+      spacesDock.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
+      spacesDock.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+      spacesDock.heightAnchor.constraint(equalToConstant: 34),
+
+      scroll.topAnchor.constraint(equalTo: newTabButton.bottomAnchor, constant: 6),
+      scroll.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 4),
+      scroll.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -4),
+      scroll.bottomAnchor.constraint(equalTo: spacesDock.topAnchor, constant: -6),
+
+      main.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+      main.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+      main.topAnchor.constraint(equalTo: root.topAnchor),
+      main.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+
+      commandBarOverlay.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+      commandBarOverlay.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+      commandBarOverlay.topAnchor.constraint(equalTo: root.topAnchor),
+      commandBarOverlay.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+
+      mainTint.leadingAnchor.constraint(equalTo: main.leadingAnchor),
+      mainTint.trailingAnchor.constraint(equalTo: main.trailingAnchor),
+      mainTint.topAnchor.constraint(equalTo: main.topAnchor),
+      mainTint.bottomAnchor.constraint(equalTo: main.bottomAnchor),
+
+      content.topAnchor.constraint(equalTo: main.topAnchor, constant: pad),
+      content.leadingAnchor.constraint(equalTo: main.leadingAnchor, constant: pad),
+      content.trailingAnchor.constraint(equalTo: main.trailingAnchor, constant: -pad),
+      content.bottomAnchor.constraint(equalTo: main.bottomAnchor, constant: -pad),
+
+      cardOverlay.leadingAnchor.constraint(equalTo: main.leadingAnchor),
+      cardOverlay.trailingAnchor.constraint(equalTo: main.trailingAnchor),
+      cardOverlay.topAnchor.constraint(equalTo: main.topAnchor),
+      cardOverlay.bottomAnchor.constraint(equalTo: main.bottomAnchor),
+
+      progress.topAnchor.constraint(equalTo: content.topAnchor),
+      progress.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+      progress.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+      progress.heightAnchor.constraint(equalToConstant: 3),
     ])
-    split.setPosition(260, ofDividerAt: 0)
     applySpaceColours()
   }
   /// Re-tint the frame, sidebar and accents for the window's current space.
   private func applySpaceColours() {
-    let sp = space
-    mainTint.color = SpacePalette.frame(for: sp); sidebarTint.color = SpacePalette.frame(for: sp); cardOverlay.frameColor = SpacePalette.frame(for: sp)
+    let sp = space.flatMap { engine.state.space($0) }
+    mainTint.color = SpacePalette.frame(for: sp); cardOverlay.frameColor = SpacePalette.frame(for: sp)
     progress.contentFilters = []
   }
 
@@ -129,22 +257,67 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   func refresh() {
     guard let w = engine.state.windows[id], let sp = engine.state.space(w.space) else { return }
     // Rebuild the popup / table only when their content changed: an open popup or context menu must not be rebuilt under the user.
-    let sSig = engine.state.spaces.map { "\($0.id.raw)\($0.name)" }.joined() + "|\(sp.id.raw)"
+    let sSig = engine.state.spaces.map { "\($0.id.raw)\($0.name)\($0.icon)\($0.profile.raw)\($0.colorHue ?? -1)" }.joined() + "|\(sp.id.raw)"
     if sSig != spaceSignature {
       spaceSignature = sSig; spacePopup.removeAllItems()
-      for (i, s) in engine.state.spaces.enumerated() { spacePopup.addItem(withTitle: s.name); spacePopup.lastItem?.tag = i }
+      for (i, s) in engine.state.spaces.enumerated() {
+        let profName = engine.state.profile(s.profile)?.name ?? ""
+        let title = !profName.isEmpty ? "\(s.icon) \(s.name) · \(profName)" : "\(s.icon) \(s.name)"
+        spacePopup.addItem(withTitle: title); spacePopup.lastItem?.tag = i
+      }
       if let i = engine.state.spaces.firstIndex(where: { $0.id == sp.id }) { spacePopup.selectItem(at: i) }
     }
-    rows = sp.tabOrder
+    // Pinned items
+    var newPinned: [PinnedItem] = []
+    for fid in sp.folderOrder {
+      guard let f = engine.state.folders[fid] else { continue }
+      newPinned.append(.folder(fid, name: f.name, isExpanded: f.isExpanded))
+      if f.isExpanded {
+        let childTabs = sp.tabOrder.filter { engine.state.tabs[$0]?.folderId == fid }
+        for tid in childTabs {
+          newPinned.append(.tab(tid, inFolder: true))
+        }
+      }
+    }
+    let standalonePinned = sp.tabOrder.filter {
+      let t = engine.state.tabs[$0]
+      return t?.pinned == true && t?.folderId == nil
+    }
+    for tid in standalonePinned {
+      newPinned.append(.tab(tid, inFolder: false))
+    }
+    pinnedItems = newPinned
+
+    if pinnedItems.isEmpty {
+      pinnedScroll.isHidden = true
+      pinnedHeightConstraint?.constant = 0
+    } else {
+      pinnedScroll.isHidden = false
+      pinnedHeightConstraint?.constant = min(CGFloat(pinnedItems.count) * 32, 220)
+      pinnedTable.reloadData()
+    }
+
+    rows = sp.tabOrder.filter { engine.state.tabs[$0]?.pinned != true }
     let rSig = rows.map { "\($0.raw)|\(title(for: $0))|\(engine.tab($0)?.isLive ?? false)" }.joined(separator: "\n") + "#\(w.selected?.raw.uuidString ?? "")"
     if rSig != rowSignature {
-      rowSignature = rSig; updatingSelection = true
+      rowSignature = rSig
+      updatingSelection = true
       table.reloadData()
-      if let s = w.selected, let r = rows.firstIndex(of: s) { table.selectRowIndexes([r], byExtendingSelection: false) } else { table.deselectAll(nil) }
+      if let s = w.selected, let r = rows.firstIndex(of: s) {
+        table.selectRowIndexes([r], byExtendingSelection: false)
+        pinnedTable.deselectAll(nil)
+      } else if let s = w.selected, let pr = pinnedItems.firstIndex(where: { if case .tab(let tid, _) = $0 { return tid == s } else { return false } }) {
+        pinnedTable.selectRowIndexes([pr], byExtendingSelection: false)
+        table.deselectAll(nil)
+      } else {
+        table.deselectAll(nil)
+        pinnedTable.deselectAll(nil)
+      }
       updatingSelection = false
     }
     applySpaceColours()
-    fetchMissingIcons(for: rows)
+    spacesDock.reloadSpaces(spaces: engine.state.spaces, active: sp.id)
+    fetchMissingIcons(for: sp.tabOrder)
     attachSelected()
     let t = w.selected.flatMap { engine.tab($0) }
     window.title = w.selected.map(title(for:)) ?? "Browser"
@@ -187,18 +360,61 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   }
 
   // MARK: table
-  func numberOfRows(in t: NSTableView) -> Int { rows.count }
+  func numberOfRows(in t: NSTableView) -> Int {
+    if t === pinnedTable { return pinnedItems.count }
+    return rows.count
+  }
+  func tableView(_ t: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+    let id = NSUserInterfaceItemIdentifier("ArcRow")
+    if let rowView = t.makeView(withIdentifier: id, owner: self) as? ArcTableRowView {
+      return rowView
+    }
+    let rowView = ArcTableRowView()
+    rowView.identifier = id
+    return rowView
+  }
   func tableView(_ t: NSTableView, viewFor col: NSTableColumn?, row: Int) -> NSView? {
+    if t === pinnedTable {
+      guard row < pinnedItems.count else { return nil }
+      switch pinnedItems[row] {
+      case .folder(_, let name, let isExpanded):
+        return FolderCell(title: name, isExpanded: isExpanded)
+      case .tab(let tid, let inFolder):
+        let host = engine.state.tabs[tid].flatMap { URL(string: $0.url)?.host } ?? ""
+        return TabCell(title: title(for: tid), icon: app.favicons.image(for: host), awake: engine.tab(tid)?.isLive ?? false, closeTarget: self, closeAction: #selector(closePinnedRowClicked(_:)), tag: row, indent: inFolder ? 30 : 14)
+      }
+    }
     guard row < rows.count else { return nil }
     let id = rows[row]
     let host = engine.state.tabs[id].flatMap { URL(string: $0.url)?.host } ?? ""
     return TabCell(title: title(for: id), icon: app.favicons.image(for: host), awake: engine.tab(id)?.isLive ?? false, closeTarget: self, closeAction: #selector(closeRowClicked(_:)), tag: row)
   }
   func tableViewSelectionDidChange(_ n: Notification) {
-    guard !updatingSelection, table.selectedRow >= 0, table.selectedRow < rows.count else { return }
-    selectTab(rows[table.selectedRow])
+    guard !updatingSelection, let t = n.object as? NSTableView else { return }
+    if t === table {
+      guard table.selectedRow >= 0, table.selectedRow < rows.count else { return }
+      pinnedTable.deselectAll(nil)
+      selectTab(rows[table.selectedRow])
+    }
   }
   @objc private func closeRowClicked(_ b: NSButton) { if b.tag < rows.count { closeTab(rows[b.tag]) } }
+  @objc private func closePinnedRowClicked(_ b: NSButton) {
+    if b.tag < pinnedItems.count, case .tab(let tid, _) = pinnedItems[b.tag] {
+      closeTab(tid)
+    }
+  }
+  @objc private func pinnedTableClicked() {
+    let row = pinnedTable.selectedRow
+    guard row >= 0, row < pinnedItems.count else { return }
+    switch pinnedItems[row] {
+    case .folder(let fid, _, _):
+      engine.toggleFolderExpanded(fid)
+      refresh()
+    case .tab(let tid, _):
+      table.deselectAll(nil)
+      selectTab(tid)
+    }
+  }
 
   func selectTab(_ tab: TabID) {
     switch engine.select(tab: tab, in: id) {
@@ -208,7 +424,65 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   }
 
   // MARK: actions
-  @objc func newTabClicked() { newTab() }
+  @objc private func toggleSidebarClicked() { toggleSidebar() }
+
+  @objc func newTabClicked() { showCommandBar() }
+
+  func showCommandBar() {
+    var items: [CommandBarItem] = []
+    for sp in engine.state.spaces {
+      for tid in sp.tabOrder {
+        if let tab = engine.state.tabs[tid] {
+          let host = URL(string: tab.url)?.host ?? ""
+          let img = app.favicons.image(for: host) ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
+          let title = tab.title.isEmpty ? (tab.url == "about:blank" ? "New Tab" : tab.url) : tab.title
+          items.append(CommandBarItem(icon: img, title: title, isSwitchToTab: true, tabId: tid, spaceId: sp.id, url: tab.url))
+        }
+      }
+    }
+    commandBarOverlay.commandBar.setInitialItems(items)
+    commandBarOverlay.commandBar.textField.stringValue = ""
+    commandBarOverlay.alphaValue = 0
+    commandBarOverlay.isHidden = false
+    NSAnimationContext.runAnimationGroup { ctx in
+      ctx.duration = 0.15
+      commandBarOverlay.animator().alphaValue = 1
+    }
+    window.makeFirstResponder(commandBarOverlay.commandBar.textField)
+  }
+
+  func dismissCommandBar() {
+    NSAnimationContext.runAnimationGroup({ ctx in
+      ctx.duration = 0.12
+      commandBarOverlay.animator().alphaValue = 0
+    }, completionHandler: { [weak self] in
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        self.commandBarOverlay.isHidden = true
+        self.commandBarOverlay.alphaValue = 1
+        if let s = self.selected, let wk = self.engine.tab(s) as? WebKitTab {
+          self.window.makeFirstResponder(wk.webView)
+        }
+      }
+    })
+  }
+
+  func handleCommandBarSelect(_ item: CommandBarItem) {
+    dismissCommandBar()
+    if let tid = item.tabId, let sp = item.spaceId {
+      if sp != space {
+        engine.switchSpace(window: id, to: sp)
+      }
+      selectTab(tid)
+    } else if let u = item.url, !u.isEmpty {
+      if let sel = selected, (engine.state.tabs[sel]?.url == "about:blank" || engine.state.tabs[sel]?.url.isEmpty == true) {
+        _ = engine.navigate(tab: sel, input: u)
+      } else if let sp = space, let newT = engine.newTab(in: sp, url: "about:blank", window: id) {
+        _ = engine.navigate(tab: newT, input: u)
+      }
+    }
+  }
+
   func newTab() {
     guard let sp = space, let t = engine.newTab(in: sp, url: "about:blank", window: id) else { return }
     _ = t; focusAddress()
@@ -235,7 +509,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   func stop() { if let s = selected { (engine.tab(s))?.stopLoading() } }
   func back() { if let s = selected { (engine.tab(s))?.goBack() } }
   func forward() { if let s = selected { (engine.tab(s))?.goForward() } }
-  @objc private func extensionsClicked() { app.extensions?.showMenu(from: extButton) }
+  @objc func extensionsClicked() { app.extensions?.showMenu(from: extButton) }
   @objc private func backClicked() { back() }
   @objc private func forwardClicked() { forward() }
   @objc private func reloadClicked() { if selected.flatMap({ engine.tab($0)?.isLoadingPage }) == true { stop() } else { reload() } }
@@ -245,7 +519,39 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   }
   func selectTab(number n: Int) { if n >= 1, n <= rows.count { selectTab(rows[n == 9 ? rows.count - 1 : n - 1]) } }
 
-  // spaces
+  // sidebar & spaces
+  func updateSidebarWidth(_ w: CGFloat) {
+    savedSidebarWidth = w
+    sidebarWidthConstraint?.constant = w
+  }
+
+  func toggleSidebar() {
+    setSidebarVisible(!isSidebarVisible, animated: true)
+  }
+
+  func setSidebarVisible(_ visible: Bool, animated: Bool) {
+    guard visible != isSidebarVisible else { return }
+    isSidebarVisible = visible
+    let targetLeading: CGFloat = visible ? 0 : -savedSidebarWidth
+    if animated {
+      NSAnimationContext.runAnimationGroup { ctx in
+        ctx.duration = 0.22
+        ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        self.sidebarLeadingConstraint?.animator().constant = targetLeading
+      }
+    } else {
+      sidebarLeadingConstraint?.constant = targetLeading
+    }
+  }
+
+  func switchSpaceRelative(direction: Int) {
+    let spaces = engine.state.spaces
+    guard spaces.count > 1, let cur = space, let idx = spaces.firstIndex(where: { $0.id == cur }) else { return }
+    let nextIdx = (idx + direction + spaces.count) % spaces.count
+    switchSpace(index: nextIdx)
+    NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+  }
+
   @objc private func spaceChanged(_ p: NSPopUpButton) { switchSpace(index: p.indexOfSelectedItem) }
   func switchSpace(index: Int) {
     guard index >= 0, index < engine.state.spaces.count else { return }
@@ -253,18 +559,67 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   }
   func newSpacePrompt() {
     let a = NSAlert(); a.messageText = "New Space"; a.informativeText = "A space groups tabs. A separate profile keeps its own logins and cookies."
-    let name = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24)); name.placeholderString = "Name"
+    let icon = NSTextField(frame: NSRect(x: 0, y: 0, width: 44, height: 24)); icon.stringValue = "🪐"; icon.placeholderString = "Icon"
+    let name = NSTextField(frame: NSRect(x: 0, y: 0, width: 210, height: 24)); name.placeholderString = "Name"
+    let row = NSStackView(views: [icon, name]); row.orientation = .horizontal; row.spacing = 6
     let sep = NSButton(checkboxWithTitle: "Separate profile (own logins and cookies)", target: nil, action: nil)
-    let stack = NSStackView(views: [name, sep]); stack.orientation = .vertical; stack.alignment = .leading; stack.frame = NSRect(x: 0, y: 0, width: 260, height: 54)
+    let stack = NSStackView(views: [row, sep]); stack.orientation = .vertical; stack.alignment = .leading; stack.frame = NSRect(x: 0, y: 0, width: 260, height: 60)
     a.accessoryView = stack; a.addButton(withTitle: "Create"); a.addButton(withTitle: "Cancel")
     guard a.runModal() == .alertFirstButtonReturn, !name.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-    createSpace(name: name.stringValue, separateProfile: sep.state == .on)
+    let ic = icon.stringValue.trimmingCharacters(in: .whitespaces)
+    createSpace(name: name.stringValue, icon: ic.isEmpty ? "🪐" : ic, separateProfile: sep.state == .on)
   }
-  @discardableResult func createSpace(name: String, separateProfile: Bool) -> SpaceID? {
+  @discardableResult func createSpace(name: String, icon: String = "🪐", profile: ProfileID? = nil, separateProfile: Bool = false, colorHue: Double? = nil) -> SpaceID? {
     guard let cur = space.flatMap({ engine.state.space($0) }) else { return nil }
-    let sp = engine.addSpace(name: name, profile: separateProfile ? ProfileID() : cur.profile)
+    let targetProfile = profile ?? (separateProfile ? engine.addProfile(name: "\(name) Profile") : cur.profile)
+    let sp = engine.addSpace(name: name, icon: icon, profile: targetProfile, colorHue: colorHue)
     engine.switchSpace(window: id, to: sp)
     newTab(); return sp
+  }
+  @discardableResult func createSpace(name: String, separateProfile: Bool) -> SpaceID? {
+    createSpace(name: name, icon: "🪐", profile: nil, separateProfile: separateProfile, colorHue: nil)
+  }
+  func editSpacePrompt(space targetID: SpaceID? = nil) {
+    guard let target = (targetID ?? space).flatMap({ engine.state.space($0) }) else { return }
+    let a = NSAlert(); a.messageText = "Edit Space"; a.informativeText = "Customize space icon, name, and profile."
+    let iconField = NSTextField(frame: NSRect(x: 0, y: 0, width: 44, height: 24)); iconField.stringValue = target.icon
+    let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 210, height: 24)); nameField.stringValue = target.name
+    let row = NSStackView(views: [iconField, nameField]); row.orientation = .horizontal; row.spacing = 6
+
+    let profLabel = NSTextField(labelWithString: "Profile (shared logins & cookies):")
+    let profPopup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 24), pullsDown: false)
+    for (idx, p) in engine.state.profiles.enumerated() {
+      profPopup.addItem(withTitle: p.name)
+      profPopup.lastItem?.tag = idx
+      if p.id == target.profile { profPopup.selectItem(at: idx) }
+    }
+    profPopup.addItem(withTitle: "+ Create New Isolated Profile…")
+    profPopup.lastItem?.tag = -1
+
+    let stack = NSStackView(views: [row, profLabel, profPopup]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 8
+    stack.frame = NSRect(x: 0, y: 0, width: 260, height: 95)
+    a.accessoryView = stack; a.addButton(withTitle: "Save"); a.addButton(withTitle: "Cancel")
+    guard a.runModal() == .alertFirstButtonReturn else { return }
+    let newName = nameField.stringValue.trimmingCharacters(in: .whitespaces)
+    let newIcon = iconField.stringValue.trimmingCharacters(in: .whitespaces)
+    let tag = profPopup.selectedItem?.tag ?? 0
+    let newProf: ProfileID
+    if tag == -1 {
+      newProf = engine.addProfile(name: "\(newName.isEmpty ? target.name : newName) Profile")
+    } else if tag >= 0 && tag < engine.state.profiles.count {
+      newProf = engine.state.profiles[tag].id
+    } else {
+      newProf = target.profile
+    }
+
+    if newProf != target.profile {
+      let warn = NSAlert(); warn.alertStyle = .warning; warn.messageText = "Switch Profile for '\(target.name)'?"
+      warn.informativeText = "This space will switch to a different profile. All open tabs in this space will reload under the new profile's logins and cookies."
+      warn.addButton(withTitle: "Switch"); warn.addButton(withTitle: "Cancel")
+      guard warn.runModal() == .alertFirstButtonReturn else { return }
+    }
+    engine.updateSpace(target.id, name: newName.isEmpty ? nil : newName, icon: newIcon.isEmpty ? nil : newIcon, profile: newProf)
+    refresh()
   }
 
   private var selectedWebView: WKWebView? { selected.flatMap { (engine.tab($0) as? WebKitTab)?.webView } }
@@ -338,18 +693,129 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   // MARK: context menu
   func menuNeedsUpdate(_ menu: NSMenu) {
     menu.removeAllItems()
+    func item(_ t: String, _ a: Selector, _ obj: Any?) -> NSMenuItem { let i = NSMenuItem(title: t, action: a, keyEquivalent: ""); i.target = self; i.representedObject = obj; return i }
+
+    if menu === pinnedTable.menu {
+      let row = pinnedTable.clickedRow
+      guard row >= 0, row < pinnedItems.count else { return }
+      switch pinnedItems[row] {
+      case .folder(let fid, _, _):
+        menu.addItem(item("New Tab in Folder", #selector(ctxNewTabInFolder(_:)), fid))
+        menu.addItem(item("Rename Folder…", #selector(ctxRenameFolder(_:)), fid))
+        menu.addItem(item("Delete Folder", #selector(ctxDeleteFolder(_:)), fid))
+      case .tab(let tid, _):
+        menu.addItem(item("Unpin Tab", #selector(ctxUnpin(_:)), tid))
+        let folderMenu = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        sub.addItem(item("None (Root Pinned)", #selector(ctxMoveToFolder(_:)), [tid, Optional<FolderID>.none as Any]))
+        if let sp = space {
+          for f in engine.state.folders(in: sp) {
+            sub.addItem(item(f.name, #selector(ctxMoveToFolder(_:)), [tid, f.id]))
+          }
+        }
+        folderMenu.submenu = sub
+        menu.addItem(folderMenu)
+        menu.addItem(item("Close Tab", #selector(ctxClose(_:)), tid))
+      }
+      return
+    }
+
     let row = table.clickedRow; guard row >= 0, row < rows.count else { return }
     let tid = rows[row]
-    func item(_ t: String, _ a: Selector) -> NSMenuItem { let i = NSMenuItem(title: t, action: a, keyEquivalent: ""); i.target = self; i.representedObject = tid; return i }
-    menu.addItem(item("Close Tab", #selector(ctxClose(_:)))); menu.addItem(item("Sleep Tab", #selector(ctxSleep(_:))))
-    menu.addItem(item("Open in New Window", #selector(ctxDetach(_:)))); menu.addItem(item("Copy Address", #selector(ctxCopy(_:))))
+    menu.addItem(item("Pin Tab", #selector(ctxPin(_:)), tid))
+    menu.addItem(item("New Folder…", #selector(ctxNewFolderPrompt(_:)), tid))
+
+    let folderMenu = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
+    let fSub = NSMenu()
+    if let sp = space {
+      for f in engine.state.folders(in: sp) {
+        fSub.addItem(item(f.name, #selector(ctxMoveToFolder(_:)), [tid, f.id]))
+      }
+    }
+    if !fSub.items.isEmpty {
+      folderMenu.submenu = fSub
+      menu.addItem(folderMenu)
+    }
+
+    menu.addItem(item("Close Tab", #selector(ctxClose(_:)), tid)); menu.addItem(item("Sleep Tab", #selector(ctxSleep(_:)), tid))
+    menu.addItem(item("Open in New Window", #selector(ctxDetach(_:)), tid)); menu.addItem(item("Copy Address", #selector(ctxCopy(_:)), tid))
     if let h = engine.state.tabs[tid].flatMap({ URL(string: $0.url)?.host }) {
-      let covering = engine.neverSleepEntry(covering: h)       // the list entry that actually protects this host (may be a parent domain)
-      let i = item(covering.map { "Allow \($0) to Sleep" } ?? "Never Sleep \(h)", #selector(ctxNeverSleep(_:))); i.representedObject = h; menu.addItem(i)
+      let covering = engine.neverSleepEntry(covering: h)
+      let i = item(covering.map { "Allow \($0) to Sleep" } ?? "Never Sleep \(h)", #selector(ctxNeverSleep(_:)), h)
+      menu.addItem(i)
     }
     let move = NSMenuItem(title: "Move to Space", action: nil, keyEquivalent: ""); let sub = NSMenu()
-    for sp in engine.state.spaces where sp.id != space { let i = NSMenuItem(title: sp.name, action: #selector(ctxMove(_:)), keyEquivalent: ""); i.target = self; i.representedObject = [tid, sp.id]; sub.addItem(i) }
+    for sp in engine.state.spaces where sp.id != space { let i = item(sp.name, #selector(ctxMove(_:)), [tid, sp.id]); sub.addItem(i) }
     move.submenu = sub; if sub.items.isEmpty { move.isEnabled = false }; menu.addItem(move)
+  }
+
+  @objc private func ctxPin(_ i: NSMenuItem) {
+    if let t = i.representedObject as? TabID {
+      engine.setTabPinned(t, pinned: true)
+      refresh()
+    }
+  }
+  @objc private func ctxUnpin(_ i: NSMenuItem) {
+    if let t = i.representedObject as? TabID {
+      engine.setTabPinned(t, pinned: false)
+      refresh()
+    }
+  }
+  @objc private func ctxNewFolderPrompt(_ i: NSMenuItem) {
+    guard let sp = space else { return }
+    let a = NSAlert()
+    a.messageText = "New Folder"
+    a.informativeText = "Name for the new folder:"
+    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+    field.stringValue = "Folder"
+    a.accessoryView = field
+    a.addButton(withTitle: "Create")
+    a.addButton(withTitle: "Cancel")
+    guard a.runModal() == .alertFirstButtonReturn else { return }
+    let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+    guard !name.isEmpty, let fid = engine.addFolder(in: sp, name: name) else { return }
+    if let tid = i.representedObject as? TabID {
+      engine.setTabPinned(tid, pinned: true)
+      engine.setTabFolder(tab: tid, folder: fid)
+    }
+    refresh()
+  }
+  @objc private func ctxMoveToFolder(_ i: NSMenuItem) {
+    guard let a = i.representedObject as? [Any], let tid = a[0] as? TabID else { return }
+    let targetFolder = a[1] as? FolderID
+    engine.setTabPinned(tid, pinned: true)
+    engine.setTabFolder(tab: tid, folder: targetFolder)
+    refresh()
+  }
+  @objc private func ctxNewTabInFolder(_ i: NSMenuItem) {
+    guard let fid = i.representedObject as? FolderID, let sp = space else { return }
+    if let tid = engine.newTab(in: sp, url: "about:blank", window: id) {
+      engine.setTabPinned(tid, pinned: true)
+      engine.setTabFolder(tab: tid, folder: fid)
+      refresh()
+      focusAddress()
+    }
+  }
+  @objc private func ctxRenameFolder(_ i: NSMenuItem) {
+    guard let fid = i.representedObject as? FolderID, let f = engine.state.folders[fid] else { return }
+    let a = NSAlert()
+    a.messageText = "Rename Folder"
+    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+    field.stringValue = f.name
+    a.accessoryView = field
+    a.addButton(withTitle: "Rename")
+    a.addButton(withTitle: "Cancel")
+    guard a.runModal() == .alertFirstButtonReturn else { return }
+    let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+    if !name.isEmpty {
+      engine.updateFolder(fid, name: name)
+      refresh()
+    }
+  }
+  @objc private func ctxDeleteFolder(_ i: NSMenuItem) {
+    guard let fid = i.representedObject as? FolderID else { return }
+    _ = engine.deleteFolder(fid)
+    refresh()
   }
   @objc private func ctxClose(_ i: NSMenuItem) { if let t = i.representedObject as? TabID { closeTab(t) } }
   @objc private func ctxSleep(_ i: NSMenuItem) { if let t = i.representedObject as? TabID { Task { @MainActor in _ = await engine.lifecycle.sleepNow(t); refresh() } } }

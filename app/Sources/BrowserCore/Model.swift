@@ -1,8 +1,19 @@
 import Foundation
 
 public struct ProfileID: Hashable, Sendable, Codable { public let raw: UUID; public init(_ raw: UUID = UUID()) { self.raw = raw } }
+public struct FolderID: Hashable, Sendable, Codable { public let raw: UUID; public init(_ raw: UUID = UUID()) { self.raw = raw } }
 public struct SpaceID: Hashable, Sendable, Codable { public let raw: UUID; public init(_ raw: UUID = UUID()) { self.raw = raw } }
 public struct WindowID: Hashable, Sendable, Codable { public let raw: UUID; public init(_ raw: UUID = UUID()) { self.raw = raw } }
+
+public struct FolderRecord: Sendable, Equatable {
+  public var id: FolderID
+  public var space: SpaceID
+  public var name: String
+  public var isExpanded: Bool
+  public init(id: FolderID = FolderID(), space: SpaceID, name: String, isExpanded: Bool = true) {
+    self.id = id; self.space = space; self.name = name; self.isExpanded = isExpanded
+  }
+}
 
 public struct TabRecord: Sendable, Equatable {
   public var id: TabID
@@ -10,9 +21,10 @@ public struct TabRecord: Sendable, Equatable {
   public var url: String
   public var title: String
   public var pinned: Bool
+  public var folderId: FolderID?
   public var lastActive: Date
-  public init(id: TabID = TabID(), space: SpaceID, url: String, title: String = "", pinned: Bool = false, lastActive: Date = Date()) {
-    self.id = id; self.space = space; self.url = url; self.title = title; self.pinned = pinned; self.lastActive = lastActive
+  public init(id: TabID = TabID(), space: SpaceID, url: String, title: String = "", pinned: Bool = false, folderId: FolderID? = nil, lastActive: Date = Date()) {
+    self.id = id; self.space = space; self.url = url; self.title = title; self.pinned = pinned; self.folderId = folderId; self.lastActive = lastActive
   }
 }
 
@@ -28,12 +40,29 @@ public struct ArchivedTab: Sendable, Equatable {
 }
 public enum RestoreResult: Equatable, Sendable { case restored(TabID), needsProfileConfirmation(from: ProfileID?, to: ProfileID), notFound }
 
+public struct ProfileRecord: Hashable, Sendable, Codable {
+  public var id: ProfileID
+  public var name: String
+  public var icon: String?
+  public init(id: ProfileID = ProfileID(), name: String, icon: String? = nil) {
+    self.id = id; self.name = name; self.icon = icon
+  }
+}
+
 public struct Space: Sendable, Equatable {
   public var id: SpaceID
   public var name: String
+  public var icon: String
   public var profile: ProfileID
+  public var colorHue: Double?
   public var tabOrder: [TabID] = []
-  public init(id: SpaceID = SpaceID(), name: String, profile: ProfileID) { self.id = id; self.name = name; self.profile = profile }
+  public var folderOrder: [FolderID] = []
+  public init(id: SpaceID = SpaceID(), name: String, profile: ProfileID) {
+    self.id = id; self.name = name; self.icon = "🪐"; self.profile = profile; self.colorHue = nil
+  }
+  public init(id: SpaceID = SpaceID(), name: String, icon: String, profile: ProfileID, colorHue: Double? = nil, folderOrder: [FolderID] = []) {
+    self.id = id; self.name = name; self.icon = icon; self.profile = profile; self.colorHue = colorHue; self.folderOrder = folderOrder
+  }
 }
 
 public struct BrowserWindow: Sendable, Equatable {
@@ -50,15 +79,53 @@ public enum MoveResult: Equatable, Sendable { case moved, needsProfileConfirmati
 
 /// Pure model of spaces, tabs and windows (see docs/architecture/window-model.md). No UI, no WebKit.
 public struct BrowserState: Sendable, Equatable {
+  public private(set) var profiles: [ProfileRecord] = []
   public private(set) var spaces: [Space] = []          // stable user order
+  public private(set) var folders: [FolderID: FolderRecord] = [:]
   public private(set) var tabs: [TabID: TabRecord] = [:]
   public private(set) var windows: [WindowID: BrowserWindow] = [:]
   public private(set) var archive: [ArchivedTab] = []     // oldest first
   public init() {}
-  public init(spaces: [Space], tabs: [TabRecord], windows: [BrowserWindow], archive: [ArchivedTab] = []) {
-    self.archive = archive; self.spaces = spaces; self.tabs = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) }); self.windows = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
+  public init(profiles: [ProfileRecord] = [], spaces: [Space], folders: [FolderRecord] = [], tabs: [TabRecord], windows: [BrowserWindow], archive: [ArchivedTab] = []) {
+    self.archive = archive; self.spaces = spaces
+    self.profiles = profiles.isEmpty ? Self.defaultProfiles(for: spaces) : profiles
+    self.folders = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
+    self.tabs = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) }); self.windows = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
+  }
+  public init(profiles: [ProfileRecord] = [], spaces: [Space], tabs: [TabRecord], windows: [BrowserWindow], archive: [ArchivedTab] = []) {
+    self.init(profiles: profiles, spaces: spaces, folders: [], tabs: tabs, windows: windows, archive: archive)
   }
 
+  public static func defaultProfiles(for spaces: [Space]) -> [ProfileRecord] {
+    var profs: [ProfileRecord] = []
+    var seen = Set<ProfileID>()
+    for (i, s) in spaces.enumerated() {
+      if seen.insert(s.profile).inserted {
+        profs.append(ProfileRecord(id: s.profile, name: i == 0 ? "Personal" : "Profile \(profs.count + 1)"))
+      }
+    }
+    return profs
+  }
+
+  // MARK: profiles
+  public func profile(_ id: ProfileID) -> ProfileRecord? { profiles.first { $0.id == id } }
+  private func profileIndex(_ id: ProfileID) -> Int? { profiles.firstIndex { $0.id == id } }
+  @discardableResult public mutating func addProfile(name: String, icon: String? = nil, id: ProfileID = ProfileID()) -> ProfileID {
+    let p = ProfileRecord(id: id, name: name, icon: icon); profiles.append(p); return p.id
+  }
+  public mutating func updateProfile(_ id: ProfileID, name: String? = nil, icon: String? = nil) {
+    guard let i = profileIndex(id) else { return }
+    if let n = name { profiles[i].name = n }
+    if let ic = icon { profiles[i].icon = ic }
+  }
+  @discardableResult public mutating func deleteProfile(_ id: ProfileID) -> Bool {
+    guard profiles.count > 1, let i = profileIndex(id) else { return false }
+    guard !spaces.contains(where: { $0.profile == id }) else { return false }
+    profiles.remove(at: i)
+    return true
+  }
+
+  // MARK: spaces
   public func space(_ id: SpaceID) -> Space? { spaces.first { $0.id == id } }
   private func spaceIndex(_ id: SpaceID) -> Int? { spaces.firstIndex { $0.id == id } }
   public var visibleTabs: Set<TabID> { Set(windows.values.compactMap(\.selected)) }
@@ -66,20 +133,85 @@ public struct BrowserState: Sendable, Equatable {
     windows.values.first { $0.selected == tab && $0.id != excluding }?.id
   }
 
-  // MARK: spaces
+  @discardableResult public mutating func addSpace(name: String, icon: String = "🪐", profile: ProfileID, colorHue: Double? = nil) -> SpaceID {
+    if self.profile(profile) == nil {
+      profiles.append(ProfileRecord(id: profile, name: profiles.isEmpty ? "Personal" : "Profile \(profiles.count + 1)"))
+    }
+    let s = Space(name: name, icon: icon, profile: profile, colorHue: colorHue); spaces.append(s); return s.id
+  }
   @discardableResult public mutating func addSpace(name: String, profile: ProfileID) -> SpaceID {
-    let s = Space(name: name, profile: profile); spaces.append(s); return s.id
+    addSpace(name: name, icon: "🪐", profile: profile, colorHue: nil)
+  }
+  public mutating func updateSpace(_ id: SpaceID, name: String? = nil, icon: String? = nil, profile: ProfileID? = nil, colorHue: Double?? = nil) {
+    guard let i = spaceIndex(id) else { return }
+    if let n = name { spaces[i].name = n }
+    if let ic = icon { spaces[i].icon = ic }
+    if let p = profile {
+      if self.profile(p) == nil { profiles.append(ProfileRecord(id: p, name: "Profile \(profiles.count + 1)")) }
+      spaces[i].profile = p
+    }
+    if let ch = colorHue { spaces[i].colorHue = ch }
   }
   /// Needs another space to receive windows. Returns removed tabs (caller archives/cleans up engine state).
   @discardableResult public mutating func deleteSpace(_ id: SpaceID, now: Date = Date()) -> [TabRecord]? {
     guard spaces.count > 1, let i = spaceIndex(id) else { return nil }
     let removed = spaces[i].tabOrder.compactMap { tabs[$0] }
     for (j, t) in removed.enumerated() { archive.append(ArchivedTab(id: t.id, space: id, url: t.url, title: t.title, pinned: t.pinned, closedAt: now, index: j, profile: spaces[i].profile, lastActive: t.lastActive)); tabs[t.id] = nil }
+    folders = folders.filter { $0.value.space != id }
     spaces.remove(at: i)
     let fallback = spaces[0].id
     for w in windows.keys where windows[w]!.space == id { switchSpace(window: w, to: fallback) }
     for w in windows.keys { windows[w]!.lastSelected[id] = nil }
     return removed
+  }
+
+  // MARK: folders
+  public func folder(_ id: FolderID) -> FolderRecord? { folders[id] }
+  public func folders(in space: SpaceID) -> [FolderRecord] {
+    guard let sp = self.space(space) else { return [] }
+    return sp.folderOrder.compactMap { folders[$0] }
+  }
+  @discardableResult public mutating func addFolder(in space: SpaceID, name: String, id: FolderID = FolderID()) -> FolderID? {
+    guard let si = spaceIndex(space) else { return nil }
+    let f = FolderRecord(id: id, space: space, name: name, isExpanded: true)
+    folders[id] = f
+    spaces[si].folderOrder.append(id)
+    return id
+  }
+  public mutating func updateFolder(_ id: FolderID, name: String? = nil, isExpanded: Bool? = nil) {
+    guard var f = folders[id] else { return }
+    if let n = name { f.name = n }
+    if let exp = isExpanded { f.isExpanded = exp }
+    folders[id] = f
+  }
+  public mutating func toggleFolderExpanded(_ id: FolderID) {
+    guard var f = folders[id] else { return }
+    f.isExpanded = !f.isExpanded
+    folders[id] = f
+  }
+  @discardableResult public mutating func deleteFolder(_ id: FolderID) -> Bool {
+    guard let f = folders[id], let si = spaceIndex(f.space) else { return false }
+    folders.removeValue(forKey: id)
+    spaces[si].folderOrder.removeAll { $0 == id }
+    for (tid, var t) in tabs where t.folderId == id {
+      t.folderId = nil
+      tabs[tid] = t
+    }
+    return true
+  }
+  public mutating func setTabFolder(tab: TabID, folder: FolderID?) {
+    guard var t = tabs[tab] else { return }
+    if let folder {
+      guard let f = folders[folder], f.space == t.space else { return }
+    }
+    t.folderId = folder
+    tabs[tab] = t
+  }
+  public mutating func setTabPinned(_ id: TabID, pinned: Bool) {
+    guard var t = tabs[id] else { return }
+    t.pinned = pinned
+    if !pinned { t.folderId = nil }
+    tabs[id] = t
   }
 
   // MARK: tabs
@@ -216,10 +348,31 @@ public struct BrowserState: Sendable, Equatable {
   public func validate() -> [String] {
     var errs: [String] = []
     var seen = Set<TabID>()
+    var seenProfiles = Set<ProfileID>()
+    for p in profiles {
+      if !seenProfiles.insert(p.id).inserted { errs.append("profile \(p.id.raw) listed twice") }
+    }
+    var seenFolders = Set<FolderID>()
     for s in spaces {
+      if profile(s.profile) == nil { errs.append("space \(s.id.raw) references missing profile") }
+      for fid in s.folderOrder {
+        if !seenFolders.insert(fid).inserted { errs.append("folder \(fid.raw) listed twice") }
+        guard let f = folders[fid] else { errs.append("folder \(fid.raw) missing in folders"); continue }
+        if f.space != s.id { errs.append("folder \(fid.raw) space mismatch") }
+      }
       for t in s.tabOrder {
         if !seen.insert(t).inserted { errs.append("tab \(t.raw) listed twice") }
         if tabs[t]?.space != s.id { errs.append("tab \(t.raw) space mismatch") }
+      }
+    }
+    for (fid, f) in folders {
+      if space(f.space) == nil { errs.append("folder \(fid.raw) references missing space") }
+      if !seenFolders.contains(fid) { errs.append("folder \(fid.raw) not in space folderOrder") }
+    }
+    for (tid, t) in tabs {
+      if let fid = t.folderId {
+        guard let f = folders[fid] else { errs.append("tab \(tid.raw) references missing folder \(fid.raw)"); continue }
+        if f.space != t.space { errs.append("tab \(tid.raw) folder space mismatch") }
       }
     }
     for t in tabs.keys where !seen.contains(t) { errs.append("tab \(t.raw) in no space") }

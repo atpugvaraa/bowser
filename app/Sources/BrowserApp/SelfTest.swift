@@ -241,13 +241,63 @@ struct SelfTest {
     // Optional: SELFTEST_SHOTS=<dir> writes PNGs of the window in light and dark (design review aid; not part of the gate).
     if let dir = ProcessInfo.processInfo.environment["SELFTEST_SHOTS"], let c = app.controllers.values.first {
       for _ in 0..<5 { c.newTab(); c.addressField.stringValue = "\(base)/\(Bool.random() ? "a" : "b").html"; c.submitAddress(); await settle() }
+      if let sp = c.space {
+        if let f1 = e.addFolder(in: sp, name: "Pull Requests") {
+          if let t1 = e.newTab(in: sp, url: "\(base)/a.html", title: "Review PR #42") {
+            e.setTabPinned(t1, pinned: true)
+            e.setTabFolder(tab: t1, folder: f1)
+          }
+        }
+        _ = e.addFolder(in: sp, name: "Capstone")
+      }
+      c.refresh()
       try? await Task.sleep(nanoseconds: 1_200_000_000)
       for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
         c.window.appearance = NSAppearance(named: appearance); c.window.displayIfNeeded(); try? await Task.sleep(nanoseconds: 600_000_000)
-        if let v = c.window.contentView?.superview ?? c.window.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
-          v.cacheDisplay(in: v.bounds, to: rep)
-          try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("ui-\(name).png"))
+        if let v = c.window.contentView {
+          let fullImg = NSImage(size: v.bounds.size)
+          fullImg.lockFocus()
+          if let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+            v.cacheDisplay(in: v.bounds, to: rep)
+            rep.draw(in: v.bounds)
+          }
+          if let sb = v.subviews.first, let sbrep = sb.bitmapImageRepForCachingDisplay(in: sb.bounds) {
+            sb.cacheDisplay(in: sb.bounds, to: sbrep)
+            sbrep.draw(in: sb.frame)
+          }
+          fullImg.unlockFocus()
+          if let tiff = fullImg.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("ui-\(name).png"))
+          }
         }
+        if let sb = c.window.contentView?.subviews.first, let rep = sb.bitmapImageRepForCachingDisplay(in: sb.bounds) {
+          sb.cacheDisplay(in: sb.bounds, to: rep)
+          try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("sidebar-\(name).png"))
+        }
+        c.showCommandBar()
+        c.window.displayIfNeeded()
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        if let v = c.window.contentView {
+          let fullImg = NSImage(size: v.bounds.size)
+          fullImg.lockFocus()
+          if let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+            v.cacheDisplay(in: v.bounds, to: rep)
+            rep.draw(in: v.bounds)
+          }
+          if let sb = v.subviews.first, let sbrep = sb.bitmapImageRepForCachingDisplay(in: sb.bounds) {
+            sb.cacheDisplay(in: sb.bounds, to: sbrep)
+            sbrep.draw(in: sb.frame)
+          }
+          if let cmd = c.commandBarOverlay.bitmapImageRepForCachingDisplay(in: c.commandBarOverlay.bounds) {
+            c.commandBarOverlay.cacheDisplay(in: c.commandBarOverlay.bounds, to: cmd)
+            cmd.draw(in: c.commandBarOverlay.frame)
+          }
+          fullImg.unlockFocus()
+          if let tiff = fullImg.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("cmdbar-\(name).png"))
+          }
+        }
+        c.dismissCommandBar()
       }
       c.window.appearance = nil
     }

@@ -33,7 +33,21 @@ Guardrails for UI work: no layer masking on web views, no per-frame work, simple
 - **Legitimate ways to get the same information (use these):** (1) the owner's screenshots / screen recordings of Arc, measured frame by frame (spacing, radii, colours, hover states, animation timing); (2) the macOS Accessibility Inspector on the owner's own screen to see Arc's control layout (observation of the UI, not of the code); (3) Arc's public help pages, release notes and videos; (4) open-source Arc-like browsers, read as references (docs/research/010-open-source-references.md): **Nook** (GPL-3.0, WebKit/SwiftUI, managers for split view/peek/extensions/tweaks), **Ora** (GPL-3.0, WebKit/AppKit/SwiftUI, Sidebar/Tabs/Launcher folders, Vendor/SplitView), **Aura**, **Zen Browser** (MPL-2.0, Firefox base; best-documented behaviours: workspaces, split view, Glance, compact mode, Mods). GPL code may be read freely; do not copy it (the combined work would become GPL if ever distributed); implement independently.
 
 ## NEXT TASKS (in order)
-1. **Redesign the sidebar/UI to match Arc's look and behaviour** (see "UI status"). Slice order: (a) layout and look with the owner's screenshots; (b) pinned tabs + favorites row (model already has `TabRecord.pinned`; engine needs pin/unpin + persistence), drag reorder, colours; (c) **profile spaces**: per-space colour/icon picker (needs a store schema bump, currently v5), clear profile marker (separate logins vs shared), bottom space switcher; (d) tab loading/behaviour polish (instant selection, loading indicator, sleeping-tab states); (e) **Boosts** (per-site user CSS/JS stored per space, injected as user scripts, simple editor + zapper; design in docs/research/009 and 010). Split view and peek later.
+1. **Redesign the sidebar/UI to match Arc's look and behaviour** (see "UI status"). Slice order:
+   - **(a) Profiles & Spaces architecture (COMPLETED 2026-10-13):** Schema v6 migration, first-class `ProfileRecord`, multiple spaces per profile sharing logins/cookies, space custom icons & hues (`SpacePalette`), Edit Space sheet, profile switcher with session reloading.
+   - **(b) Sidebar visual wireframe & hierarchy (COMPLETED 2026-10-13):** Exact match of the user's reference screenshots (`uploaded_media_1791890022540.png`, `uploaded_media_1791885772086.png`):
+     - Top nav: Traffic lights (70pt left offset), `sidebar.left` toggle button, `←` back, `→` forward, `↻` reload.
+     - Address field: Full-width rounded field in sidebar with tail truncation and domain display.
+     - Favorites container: 1pt dashed border rounded card, `star.circle`, "Drag to add Favorites", and dismiss `✕`.
+     - Space header: `[Emoji] [Space] · [Profile]` with popup switcher.
+     - Pinned section: Collapsible folders (`📁 Pull Requests`, `📁 Capstone`) with disclosure chevrons and indented tabs (`Review PR #42`), plus standalone pinned tabs.
+     - 0.5pt subtle horizontal divider.
+     - `+ New Tab` action button directly beneath the divider and above unpinned tabs.
+     - Unpinned ephemeral tab list with active pill card highlight (`#38383c`).
+     - Bottom Spaces Dock: extensions `🧩` button on far left, space indicator pills in center, and `+` add space button on far right.
+   - **(c) Command Bar / New Tab modal (COMPLETED 2026-10-13):** Centered floating card (`#1e1e21`, 14pt radius, drop shadow), search field `Search or Enter URL...` with magnifying glass and info button, real-time open tab matching across spaces with `Switch to Tab ➔` pills, and keyboard/agentic navigation.
+   - **(d) Gestures & Animations (COMPLETED 2026-10-13):** `⌘S` smooth sidebar collapse/expand into the left edge, two-finger horizontal trackpad swipe to switch spaces with haptic feedback, 0.15s Command Bar spring presentation.
+   - **(e) Polish & Boosts (NEXT):** Per-space custom color swatch picker in Edit Space sheet, tab loading animations, Boosts (per-site user CSS/JS stored per space).
 2. Speed pass follow-ups (owner approved): measure battery/memory effect of preconnect; consider prefetch only if measured and opt-in.
 3. Extensions: run Dark Reader, Vimium, Bitwarden through `ExtLab` (`ExtLab chrome:<id>|firefox:<slug>|<dir> <url> <secs> --eval <js>`); Grammarly needs the owner's login; toolbar popups untried; `userScripts`/`offscreen` shims not built; per-space extension enablement.
 4. Passkeys follow-ups: conditional-UI (autofill) passkeys, iframe passkeys, account chooser; Touch ID local passkeys only if the owner asks.

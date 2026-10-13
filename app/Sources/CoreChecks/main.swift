@@ -1425,5 +1425,81 @@ do {
     do { _ = try await run(client(5), flow: "ga", ga); check(false, "hybrid e2e: unassigned domain") } catch { check((error as? HybridError) == .unsupportedTunnelDomain(5), "hybrid e2e: an unassigned tunnel domain is refused") }
   } catch { check(false, "hybrid e2e threw \(error) (phone error: \(String(describing: box.error)))") }
 }
+
+// 43. Multi-profile architecture & Schema v6 migration
+do {
+  // Profiles in BrowserState
+  var state = BrowserState()
+  let profPersonal = state.addProfile(name: "Personal", icon: "👤")
+  let profWork = state.addProfile(name: "Work", icon: "💼")
+  check(state.profiles.count == 2, "profiles: multiple profiles can be created")
+  check(state.profile(profWork)?.name == "Work" && state.profile(profWork)?.icon == "💼", "profiles: record contains name and icon")
+
+  // Multiple spaces per profile sharing cookie/login context
+  let sp1 = state.addSpace(name: "General", icon: "🪐", profile: profPersonal, colorHue: 0.1)
+  let sp2 = state.addSpace(name: "Research", icon: "📚", profile: profPersonal, colorHue: 0.2)
+  let spWork = state.addSpace(name: "Office", icon: "💼", profile: profWork, colorHue: 0.6)
+  check(state.space(sp1)?.profile == state.space(sp2)?.profile, "spaces: multiple spaces share the same profile")
+  check(state.space(sp1)?.icon == "🪐" && state.space(sp2)?.icon == "📚", "spaces: custom space icons preserved")
+  check(state.space(sp1)?.colorHue == 0.1 && state.space(spWork)?.colorHue == 0.6, "spaces: custom color hues preserved")
+
+  // Moving tab between spaces of SAME profile requires no confirmation
+  let t1 = state.addTab(in: sp1, url: "https://example.com/shared")!
+  check(state.moveTab(t1, to: sp2) == .moved, "spaces: moving tab between spaces of same profile requires no confirmation")
+  check(state.tabs[t1]?.space == sp2, "spaces: tab moved to new space")
+
+  // Moving tab across profiles requires confirmation
+  check(state.moveTab(t1, to: spWork) == .needsProfileConfirmation(from: profPersonal, to: profWork), "spaces: moving tab across profiles requires confirmation")
+
+  // Updating space profile
+  state.updateSpace(sp2, name: "Research Team", icon: "🔬", profile: profWork, colorHue: 0.8)
+  check(state.space(sp2)?.profile == profWork && state.space(sp2)?.name == "Research Team" && state.space(sp2)?.icon == "🔬" && state.space(sp2)?.colorHue == 0.8, "spaces: updateSpace changes profile, name, icon, and hue")
+
+  // Profile deletion constraints
+  check(!state.deleteProfile(profWork), "profiles: cannot delete profile when spaces still reference it")
+  state.updateSpace(sp2, profile: profPersonal)
+  state.updateSpace(spWork, profile: profPersonal)
+  check(state.deleteProfile(profWork), "profiles: deleting unreferenced profile succeeds")
+  check(state.validate().isEmpty, "profiles: model invariants hold after mutations")
+
+  // Persistence round-trip with schema v6
+  let dbPath = tmpDB()
+  let store = try Store(path: dbPath)
+  try store.save(state)
+  let loaded = try store.load()
+  check(loaded.profiles.count == state.profiles.count, "store v6: profiles round-trip")
+  check(loaded.spaces.count == 3 && loaded.space(sp1)?.icon == "🪐" && loaded.space(sp1)?.colorHue == 0.1, "store v6: space icons and hues round-trip")
+
+  // Migration v5 -> v6 test
+  let v5Path = tmpDB()
+  var v5h: OpaquePointer?
+  sqlite3_open(v5Path, &v5h)
+  let spv5 = UUID().uuidString
+  let profv5 = UUID().uuidString
+  let winv5 = UUID().uuidString
+  sqlite3_exec(v5h, """
+  CREATE TABLE space(id TEXT PRIMARY KEY, name TEXT NOT NULL, profile TEXT NOT NULL, ord INTEGER NOT NULL);
+  CREATE TABLE tab(id TEXT PRIMARY KEY, space TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE, url TEXT NOT NULL, title TEXT NOT NULL, pinned INTEGER NOT NULL, last_active REAL NOT NULL, ord INTEGER NOT NULL);
+  CREATE TABLE window(id TEXT PRIMARY KEY, space TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE, selected TEXT, ord INTEGER NOT NULL, frame TEXT);
+  CREATE TABLE window_last(window TEXT NOT NULL REFERENCES window(id) ON DELETE CASCADE, space TEXT NOT NULL, tab TEXT NOT NULL, PRIMARY KEY(window, space));
+  CREATE TABLE setting(key TEXT PRIMARY KEY, value BLOB NOT NULL);
+  CREATE TABLE archive(id TEXT PRIMARY KEY, space TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, pinned INTEGER NOT NULL, closed_at REAL NOT NULL, idx INTEGER NOT NULL, ord INTEGER NOT NULL, profile TEXT, last_active REAL);
+  CREATE TABLE tab_state(tab TEXT PRIMARY KEY, state BLOB NOT NULL, updated REAL NOT NULL);
+  CREATE TABLE history(profile TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visits INTEGER NOT NULL, last_visited REAL NOT NULL, url_l TEXT NOT NULL, title_l TEXT NOT NULL, PRIMARY KEY(profile, url));
+  CREATE TABLE bookmark(id TEXT PRIMARY KEY, profile TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, added REAL NOT NULL, ord INTEGER NOT NULL);
+  INSERT INTO space VALUES('\(spv5)','V5Space','\(profv5)',0);
+  INSERT INTO window VALUES('\(winv5)','\(spv5)',NULL,0,'10,20,800,600');
+  PRAGMA user_version=5;
+  """, nil, nil, nil)
+  sqlite3_close(v5h)
+
+  let migratedStore = try Store(path: v5Path)
+  let migratedState = try migratedStore.load()
+  check(migratedState.spaces.count == 1 && migratedState.spaces[0].name == "V5Space", "migration v5 -> v6 preserves existing spaces")
+  check(migratedState.spaces[0].icon == "🪐" && migratedState.spaces[0].colorHue == nil, "migration v5 -> v6 defaults space icon to 🪐 and colorHue to nil")
+  check(migratedState.profiles.count == 1 && migratedState.profiles[0].id.raw.uuidString == profv5, "migration v5 -> v6 automatically populates profile for existing spaces")
+  check(migratedState.windows.count == 1 && migratedState.windows.values.first?.frame == [10, 20, 800, 600], "migration v5 -> v6 preserves window frame")
+}
+
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)
