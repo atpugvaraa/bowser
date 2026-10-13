@@ -123,3 +123,9 @@ Spikes are throwaway. These patterns must NOT carry into product code:
 
 ## 2026-10-13 power redo (docs/results/power-20261013-105503.md)
 Clean run, every row valid with page-reported fps. This browser == Safari on power: aquarium-30k 8.7 W vs 8.7 W (both 45 fps); webgl-shader 0.76 W vs 0.88 W (both 60 fps); idle 272 mW. The earlier "7 W vs 0.5 W" table was a measurement artifact (page not rendering in Safari). Chrome draws more because it renders more: 94 fps / 120 fps at 12.2 W / 1.2 W. Per frame, WebKit is cheaper, so the fps gap is a cap, not an efficiency gap.
+
+## 2026-10-13 extensions (host) and frame governor
+- WebKit keeps extensions out of private (non-persistent data store) pages; set `controller.configuration.defaultWebsiteDataStore` to the profile's store and `hasAccessToPrivateData` only in tests. This cost an hour: content scripts silently did not inject.
+- `WKWebExtensionContext.loadBackgroundContent()` after `controller.load()` double-resumes a continuation and crashes the process (macOS 27.0.1); never call it.
+- A manifest without `description` is reported as an error by WebKit; the normaliser fills it from the name.
+- WebKit has no knob for a page frame rate below the display rate; `PreferPageRenderingUpdatesNear60FPSEnabled` is read at page creation only. The adaptive rate is therefore an injected rAF governor (FrameGovernor.swift); measured 120 fps/15% CPU -> 45 fps/9% on the shader page when idle tiers apply.
