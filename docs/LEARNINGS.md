@@ -136,3 +136,9 @@ Clean run, every row valid with page-reported fps. This browser == Safari on pow
 - ExtLab (app/Sources/ExtLab) loads any extension (dir, file, chrome:ID, firefox:SLUG) into a real tab and evals JS: use it for the compatibility matrix.
 - Regression: EngineStress now asserts a static declarativeNetRequest block rule blocks a local fetch.
 - Secure Enclave keys (CryptoKit) work unsigned and ad-hoc signed on this Mac.
+
+## 2026-10-13 speed pass and housekeeping
+- WebKit leaves `networkCacheSpeculativeValidationEnabled` off for embedder data stores; turning it on (private `_WKWebsiteDataStoreConfiguration`) made repeat visits 14-80% faster and shares the same on-disk data as `WKWebsiteDataStore(forIdentifier:)` (cookies verified both ways). WebKit returns the FIRST store created for an identifier in a process.
+- `WKProcessPool` is deprecated (no effect since macOS 12): no manual process warm-up.
+- Overwriting an app binary macOS has already run gets it SIGKILLed; each release build goes to a fresh `dist/Browser-<time>.app`.
+- Owner verified phone-QR passkeys work with a real iPhone.
