@@ -29,6 +29,8 @@ Legend: **implemented** = built and covered by an automated check; **partial** =
 | Private browsing | not implemented | |
 | Safari baseline comparison | **blocked** | see scale |
 | Signed build | partial | hardened runtime + entitlements, ad-hoc; real certificate needs the owner's Apple ID in Xcode (docs/SIGNING.md) |
+| Browser identity (User-Agent) | implemented | default Safari (fixes pages served in legacy form to a bare WebKit view); choose Chrome/Firefox/Edge in Settings; docs/features/browser-identity.md |
+| Arc-style UI, dark-mode polish | not started | notes in docs/research/009-arc-style-redesign-notes.md |
 | Adaptive frame rate (LTPO-style) | implemented | rAF governor, power-aware; measured 120 fps/15% CPU -> 45 fps/9% idle on the shader page |
 
 Self-checks: ~400 (policy, model, store, recovery, settings, ranking, dialogs) + UI self-test + real-WebKit stress. Everything runs through `scripts/gate.sh` on every commit.

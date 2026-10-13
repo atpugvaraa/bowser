@@ -2,6 +2,7 @@ import AppKit
 import BrowserCore
 import ContentBlocking
 import EngineCore
+import EngineWebKit
 import Foundation
 import Lifecycle
 
@@ -37,6 +38,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     ("tabMemoryCap", "Stop a tab using more than (MB; 0 = automatic)", "Protects your Mac from a page that eats all memory. Automatic = a quarter of your RAM (2–8 GB). The stopped tab keeps its address; Reload runs it again."),
   ]
   private let neverSleep = NSTextField()
+  private let identity = NSPopUpButton()
 
   private func build() {
     let root = NSView(); window.contentView = root
@@ -53,6 +55,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let ns = NSStackView(); ns.orientation = .vertical; ns.alignment = .leading; ns.spacing = 4
     let nl = NSTextField(labelWithString: "Never sleep these sites (comma-separated):"); neverSleep.placeholderString = "music.example, chat.example"; neverSleep.widthAnchor.constraint(equalToConstant: 420).isActive = true
     ns.addArrangedSubview(nl); ns.addArrangedSubview(neverSleep); stack.addArrangedSubview(ns)
+    let il = NSTextField(labelWithString: "Tell websites this browser is:"); identity.addItems(withTitles: BrowserIdentity.allCases.map(\.title))
+    identity.target = self; identity.action = #selector(identityChanged(_:))
+    let irow = NSStackView(views: [il, identity]); irow.spacing = 8; stack.addArrangedSubview(irow)
+    let ih = NSTextField(wrappingLabelWithString: "Safari is honest and works best. Pick Chrome, Firefox or Edge only for a site that refuses Safari; it is a disguise, the engine stays WebKit. Applies from each tab's next page load."); ih.textColor = .secondaryLabelColor; ih.preferredMaxLayoutWidth = 420; stack.addArrangedSubview(ih)
     stack.addArrangedSubview(blockEnabled)
     let bl = NSTextField(labelWithString: "Don't block on these sites (comma-separated):"); blockAllow.placeholderString = "shop.example"; blockAllow.widthAnchor.constraint(equalToConstant: 420).isActive = true
     stack.addArrangedSubview(bl); stack.addArrangedSubview(blockAllow)
@@ -64,8 +70,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     note.textColor = .secondaryLabelColor; note.preferredMaxLayoutWidth = 420; stack.addArrangedSubview(note)
   }
 
+  @objc private func identityChanged(_ p: NSPopUpButton) {
+    let all = BrowserIdentity.allCases; guard p.indexOfSelectedItem >= 0, p.indexOfSelectedItem < all.count else { return }
+    app.factory.setIdentity(all[p.indexOfSelectedItem])
+  }
   private func minutes(_ s: TimeInterval) -> String { String(Int((s / 60).rounded())) }
   private func load() {
+    identity.selectItem(at: BrowserIdentity.allCases.firstIndex(of: BrowserIdentity.current) ?? 0)
     let c = app.engine.policy
     enabled.state = c.enabled ? .on : .off
     fields["defaultGrace"]?.stringValue = minutes(c.defaultGrace); fields["minGrace"]?.stringValue = minutes(c.minGrace)

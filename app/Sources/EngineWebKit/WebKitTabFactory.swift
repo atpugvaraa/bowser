@@ -81,6 +81,21 @@ public final class WebKitTabFactory: TabFactory {
   /// Asked when a page wants the camera/microphone; nil = always deny.
   public var captureHandler: ((_ host: String, _ camera: Bool, _ microphone: Bool) async -> Bool)?
 
+  /// Sites decide what to serve from the user agent. A bare WKWebView has no "Version/x Safari/y" token, so many sites treat it as an unknown or
+  /// old browser and send stripped-down legacy pages. Present as the installed Safari (same WebKit engine, same frozen OS token).
+  static let safariVersionToken: String = {
+    for path in ["/Applications/Safari.app", "/System/Cryptexes/App/System/Applications/Safari.app"] {
+      if let v = Bundle(path: path)?.infoDictionary?["CFBundleShortVersionString"] as? String, v.range(of: #"^\d+(\.\d+){0,2}$"#, options: .regularExpression) != nil { return v }
+    }
+    return "\(ProcessInfo.processInfo.operatingSystemVersion.majorVersion).0"
+  }()
+
+  /// Change the identity for every open tab (takes effect on each tab's next page load) and for tabs created from now on.
+  public func setIdentity(_ id: BrowserIdentity) {
+    BrowserIdentity.current = id
+    for t in liveTabs.allObjects { t.webView?.customUserAgent = id.fullUserAgent }
+  }
+
   public func configuration(for profile: ProfileID) -> WKWebViewConfiguration {
     if let c = configs[profile] { return c }
     let c = WKWebViewConfiguration()
@@ -93,6 +108,7 @@ public final class WebKitTabFactory: TabFactory {
     c.userContentController.addUserScript(PasskeyBridge.script(requireUserActivation: passkeys.requireUserActivation))
     c.userContentController.addScriptMessageHandler(passkeys, contentWorld: .page, name: PasskeyBridge.handlerName)
     if let h = extensionHost { c.webExtensionController = h.controller(for: profile, store: c.websiteDataStore) }
+    c.applicationNameForUserAgent = "Version/\(Self.safariVersionToken) Safari/605.1.15"
     c.preferences.isElementFullscreenEnabled = true              // the player's fullscreen button (YouTube, Netflix, Prime) does nothing without this
     if let l = blockingList { c.userContentController.add(l) }
     configs[profile] = c

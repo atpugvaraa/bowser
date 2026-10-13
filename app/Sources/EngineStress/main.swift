@@ -435,7 +435,7 @@ Task { @MainActor in
     let js = """
     const out = {};
     try {
-    out.secure = isSecureContext; out.hasPKC = typeof PublicKeyCredential;
+    out.ua = navigator.userAgent; out.secure = isSecureContext; out.hasPKC = typeof PublicKeyCredential;
     out.uvpaa = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
     const gap = () => new Promise(r => setTimeout(r, 3300));
     const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
@@ -449,7 +449,7 @@ Task { @MainActor in
     out.rpHashOK = hex(ad.slice(0, 32)) === hex(h);
     out.json = typeof g.toJSON().response.signature;
     await gap();
-    try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32), rpId: 'example.com' } }); out.badRp = 'ALLOWED'; } catch (e) { out.badRp = e.name; }
+    try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32), rpId: 'example.com' } }); out.badRp = 'ALLOWED'; } catch (e) { out.badRp = e.name; out.badRpMsg = e.message; }
     await gap();
     try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32).fill(5), allowCredentials: [{ type: 'public-key', id: new Uint8Array([9, 9, 9]) }] } }); out.noCred = 'ALLOWED'; } catch (e) { out.noCred = e.name; }
     // hostile inputs straight at the native handler
@@ -468,22 +468,52 @@ Task { @MainActor in
     } catch (e) { out.error = e.name + ': ' + e.message; }
     return JSON.stringify(out);
     """
+    NSApp.activate(ignoringOtherApps: true); win.makeKeyAndOrderFront(nil); try? await Task.sleep(nanoseconds: 300_000_000)
     var res: Any?; do { res = try await w.callAsyncJavaScript(js, arguments: [:], in: nil, contentWorld: .page) } catch { log("- passkey page script error: \(error)") }
     let m = ((res as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) }) as? [String: Any] ?? [:]
     log("- passkeys through a real page: \(m)  origins seen by native: \(seenOrigins)")
     let created = m["created"] as? [String: Any] ?? [:], got = m["got"] as? [String: Any] ?? [:], cd = m["cd"] as? [String: Any] ?? [:]
     if m.isEmpty { fail("passkeys: the page script threw before returning results") }
+    let ua = (m["ua"] as? String) ?? ""
+    log("- user agent seen by pages: \(ua)")
+    if !ua.contains("Version/") || !ua.contains("Safari/605.1.15") || !ua.hasPrefix("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15") { fail("user agent does not look like Safari: \(ua)") }
     if (m["uvpaa"] as? Bool) != false { fail("passkeys: isUserVerifyingPlatformAuthenticatorAvailable must be false (no platform authenticator)") }
     if (created["type"] as? String) != "public-key" || (created["inst"] as? Bool) != true || (created["alg"] as? Int) != -7 || (created["pk"] as? Int ?? 0) < 60 { fail("passkeys: create() did not return a usable PublicKeyCredential \(created)") }
     if (created["transports"] as? [String]) != ["hybrid"] { fail("passkeys: transports should be hybrid") }
     if (cd["type"] as? String) != "webauthn.create" || (cd["origin"] as? String) != "http://localhost:\(port)" { fail("passkeys: clientDataJSON origin/type wrong \(cd)") }
     if (got["same"] as? Bool) != true || (got["sig"] as? Bool) != true || (got["uh"] as? String) != "1,2" { fail("passkeys: get() returned the wrong credential \(got)") }
     if (m["rpHashOK"] as? Bool) != true { fail("passkeys: authenticatorData rpIdHash is not sha256(localhost)") }
-    if (m["badRp"] as? String) != "SecurityError" { fail("passkeys: a page asking for another site's rpId was not refused (\(m["badRp"] ?? "nil"))") }
+    if (m["badRp"] as? String) != "SecurityError" { fail("passkeys: a page asking for another site's rpId was not refused (\(m["badRp"] ?? "nil"): \(m["badRpMsg"] ?? ""), key window: \(win.isKeyWindow))") }
     if (m["noCred"] as? String) != "NotAllowedError" { fail("passkeys: no-matching-credential should be NotAllowedError (\(m["noCred"] ?? "nil"))") }
     if (m["abort"] as? String) != "AbortError" { fail("passkeys: an aborted signal should reject with AbortError (\(m["abort"] ?? "nil"))") }
     if seenOrigins.contains(where: { !$0.hasPrefix("http://localhost:\(port)|localhost") }) { fail("passkeys: native saw a wrong origin/rpId \(seenOrigins)") }
     win.close()
+  }
+
+  // 10e. Browser identity: Safari by default, selectable Chrome / Firefox / Edge, applied to new and open tabs
+  do {
+    let saved = BrowserIdentity.current; defer { BrowserIdentity.current = saved }
+    let factory = WebKitTabFactory(persistent: false)
+    var seen: [String: String] = [:]
+    for id in BrowserIdentity.allCases {
+      factory.setIdentity(id)
+      let t = factory.makeTab(id: TabID(), url: nil, profile: ProfileID(), restoredState: nil) as! WebKitTab
+      let w = t.ensureLive(); w.loadHTMLString("<html><body>ua</body></html>", baseURL: URL(string: "http://localhost/"))
+      _ = await waitUntil(15) { w.isLoading == false }
+      seen[id.rawValue] = (try? await w.evaluateJavaScript("navigator.userAgent")) as? String ?? "?"
+    }
+    log("- identities: \(seen)")
+    if !(seen["safari"] ?? "").contains("Version/") || !(seen["safari"] ?? "").contains("Safari/605.1.15") { fail("identity: default is not Safari \(seen["safari"] ?? "nil")") }
+    if !(seen["chrome"] ?? "").contains("Chrome/145") || (seen["chrome"] ?? "").contains("Edg/") { fail("identity: chrome wrong \(seen["chrome"] ?? "nil")") }
+    if !(seen["firefox"] ?? "").contains("Firefox/145") || !(seen["firefox"] ?? "").contains("Gecko/") { fail("identity: firefox wrong \(seen["firefox"] ?? "nil")") }
+    if !(seen["edge"] ?? "").contains("Edg/145") { fail("identity: edge wrong \(seen["edge"] ?? "nil")") }
+    // switching on an open tab changes the next load
+    factory.setIdentity(.safari)
+    let t = factory.makeTab(id: TabID(), url: nil, profile: ProfileID(), restoredState: nil) as! WebKitTab; let w = t.ensureLive()
+    w.loadHTMLString("<html><body>a</body></html>", baseURL: URL(string: "http://localhost/")); _ = await waitUntil(15) { w.isLoading == false }
+    factory.setIdentity(.firefox); w.loadHTMLString("<html><body>b</body></html>", baseURL: URL(string: "http://localhost/")); _ = await waitUntil(15) { w.isLoading == false }
+    let after = (try? await w.evaluateJavaScript("navigator.userAgent")) as? String ?? "?"
+    if !after.contains("Firefox/") { fail("identity: switching an open tab did not apply to its next load (\(after))") }
   }
 
   // 11. Navigation security, popups, errors, downloads, capture — real WebKit
