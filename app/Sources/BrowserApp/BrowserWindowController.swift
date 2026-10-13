@@ -54,54 +54,67 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   func closeFromEngine() { if !closingFromEngine { closingFromEngine = true; window.close() } }
 
   // MARK: UI construction
+  private let mainTint = TintView(), sidebarTint = TintView(), cardOverlay = CardFrameOverlay()
   private func buildUI() {
+    window.styleMask.insert(.fullSizeContentView)
+    window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
     let root = NSView(); window.contentView = root
 
-    let sidebar = NSVisualEffectView(); sidebar.material = .sidebar; sidebar.blendingMode = .behindWindow; sidebar.translatesAutoresizingMaskIntoConstraints = false
-    spacePopup.target = self; spacePopup.action = #selector(spaceChanged(_:)); spacePopup.translatesAutoresizingMaskIntoConstraints = false
-    let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tab")); col.resizingMask = .autoresizingMask; table.addTableColumn(col)
-    table.headerView = nil; table.rowHeight = 30; table.style = .sourceList; table.dataSource = self; table.delegate = self
-    table.allowsEmptySelection = true; table.allowsMultipleSelection = false; table.backgroundColor = .clear
-    let menu = NSMenu(); menu.delegate = self; table.menu = menu
-    let scroll = NSScrollView(); scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.drawsBackground = false; scroll.translatesAutoresizingMaskIntoConstraints = false
-    let newTabButton = NSButton(title: "New Tab", target: self, action: #selector(newTabClicked)); newTabButton.bezelStyle = .rounded
-    newTabButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab"); newTabButton.imagePosition = .imageLeading; newTabButton.translatesAutoresizingMaskIntoConstraints = false
-    sidebar.addSubview(spacePopup); sidebar.addSubview(scroll); sidebar.addSubview(newTabButton)
-
+    // Sidebar: translucent, tinted by the space colour, traffic lights sit in its top margin.
+    let sidebar = NSVisualEffectView(); sidebar.material = .sidebar; sidebar.blendingMode = .behindWindow; sidebar.state = .followsWindowActiveState; sidebar.translatesAutoresizingMaskIntoConstraints = false
+    sidebarTint.alphaValue = 0.35; sidebarTint.translatesAutoresizingMaskIntoConstraints = false
+    sidebar.addSubview(sidebarTint)
     func style(_ b: NSButton, _ symbol: String, _ action: Selector, _ tip: String) {
-      b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip); b.bezelStyle = .texturedRounded; b.isBordered = true
+      b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip); b.isBordered = false; b.imagePosition = .imageOnly; b.contentTintColor = .secondaryLabelColor
       b.target = self; b.action = action; b.toolTip = tip; b.translatesAutoresizingMaskIntoConstraints = false
     }
     style(backButton, "chevron.left", #selector(backClicked), "Back"); style(forwardButton, "chevron.right", #selector(forwardClicked), "Forward"); style(reloadButton, "arrow.clockwise", #selector(reloadClicked), "Reload")
-    addressField.placeholderString = "Search or enter website"; addressField.bezelStyle = .roundedBezel; addressField.delegate = self
-    addressField.lineBreakMode = .byTruncatingTail; addressField.translatesAutoresizingMaskIntoConstraints = false
-    progress.style = .bar; progress.isIndeterminate = false; progress.minValue = 0; progress.maxValue = 1; progress.controlSize = .small; progress.isHidden = true; progress.translatesAutoresizingMaskIntoConstraints = false
-    let bar = NSView(); bar.translatesAutoresizingMaskIntoConstraints = false
     style(extButton, "puzzlepiece.extension", #selector(extensionsClicked), "Extensions")
-    [backButton, forwardButton, reloadButton, addressField, extButton].forEach { bar.addSubview($0) }
-    content.translatesAutoresizingMaskIntoConstraints = false; content.wantsLayer = true
+    let nav = NSStackView(views: [backButton, forwardButton, reloadButton, NSView(), extButton]); nav.orientation = .horizontal; nav.spacing = 10; nav.translatesAutoresizingMaskIntoConstraints = false
+    addressField.placeholderString = "Search or enter website"; addressField.bezelStyle = .roundedBezel; addressField.delegate = self; addressField.font = .systemFont(ofSize: 13)
+    addressField.lineBreakMode = .byTruncatingTail; addressField.translatesAutoresizingMaskIntoConstraints = false; addressField.focusRingType = .none
+    spacePopup.target = self; spacePopup.action = #selector(spaceChanged(_:)); spacePopup.translatesAutoresizingMaskIntoConstraints = false; spacePopup.isBordered = false; spacePopup.font = .systemFont(ofSize: 12, weight: .semibold)
+    let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tab")); col.resizingMask = .autoresizingMask; table.addTableColumn(col)
+    table.headerView = nil; table.rowHeight = 32; table.style = .sourceList; table.dataSource = self; table.delegate = self; table.intercellSpacing = NSSize(width: 0, height: 2)
+    table.allowsEmptySelection = true; table.allowsMultipleSelection = false; table.backgroundColor = .clear
+    let menu = NSMenu(); menu.delegate = self; table.menu = menu
+    let scroll = NSScrollView(); scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.drawsBackground = false; scroll.translatesAutoresizingMaskIntoConstraints = false; scroll.scrollerStyle = .overlay
+    let newTabButton = NSButton(title: "New Tab", target: self, action: #selector(newTabClicked)); newTabButton.isBordered = false
+    newTabButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab"); newTabButton.imagePosition = .imageLeading; newTabButton.contentTintColor = .secondaryLabelColor; newTabButton.alignment = .left; newTabButton.translatesAutoresizingMaskIntoConstraints = false
+    [nav, addressField, spacePopup, scroll, newTabButton].forEach { sidebar.addSubview($0) }
+
+    // Page area: a coloured frame with the page as a rounded card. The card's corners are painted over the web view (see CardFrameOverlay).
+    progress.style = .bar; progress.isIndeterminate = false; progress.minValue = 0; progress.maxValue = 1; progress.controlSize = .small; progress.isHidden = true; progress.translatesAutoresizingMaskIntoConstraints = false
+    content.translatesAutoresizingMaskIntoConstraints = false
+    mainTint.translatesAutoresizingMaskIntoConstraints = false; cardOverlay.translatesAutoresizingMaskIntoConstraints = false
     let main = NSView(); main.translatesAutoresizingMaskIntoConstraints = false
-    [bar, progress, content].forEach { main.addSubview($0) }
+    [mainTint, content, progress, cardOverlay].forEach { main.addSubview($0) }
     let split = NSSplitView(); split.isVertical = true; split.dividerStyle = .thin; split.translatesAutoresizingMaskIntoConstraints = false
     split.addArrangedSubview(sidebar); split.addArrangedSubview(main)
     root.addSubview(split)
+    let pad: CGFloat = 8
     NSLayoutConstraint.activate([
-      split.leadingAnchor.constraint(equalTo: root.leadingAnchor), split.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-      split.topAnchor.constraint(equalTo: root.topAnchor), split.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-      sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 180), sidebar.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
-      spacePopup.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 38), spacePopup.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10), spacePopup.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
-      scroll.topAnchor.constraint(equalTo: spacePopup.bottomAnchor, constant: 8), scroll.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-      scroll.bottomAnchor.constraint(equalTo: newTabButton.topAnchor, constant: -8),
-      newTabButton.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10), newTabButton.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10), newTabButton.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -10),
-      bar.topAnchor.constraint(equalTo: main.topAnchor), bar.leadingAnchor.constraint(equalTo: main.leadingAnchor), bar.trailingAnchor.constraint(equalTo: main.trailingAnchor), bar.heightAnchor.constraint(equalToConstant: 40),
-      backButton.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 10), backButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-      forwardButton.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 4), forwardButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-      reloadButton.leadingAnchor.constraint(equalTo: forwardButton.trailingAnchor, constant: 4), reloadButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-      addressField.leadingAnchor.constraint(equalTo: reloadButton.trailingAnchor, constant: 10), addressField.trailingAnchor.constraint(equalTo: extButton.leadingAnchor, constant: -8), extButton.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10), extButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor), addressField.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-      progress.topAnchor.constraint(equalTo: bar.bottomAnchor), progress.leadingAnchor.constraint(equalTo: main.leadingAnchor), progress.trailingAnchor.constraint(equalTo: main.trailingAnchor), progress.heightAnchor.constraint(equalToConstant: 3),
-      content.topAnchor.constraint(equalTo: progress.bottomAnchor), content.leadingAnchor.constraint(equalTo: main.leadingAnchor), content.trailingAnchor.constraint(equalTo: main.trailingAnchor), content.bottomAnchor.constraint(equalTo: main.bottomAnchor),
+      split.leadingAnchor.constraint(equalTo: root.leadingAnchor), split.trailingAnchor.constraint(equalTo: root.trailingAnchor), split.topAnchor.constraint(equalTo: root.topAnchor), split.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+      sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 200), sidebar.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+      sidebarTint.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor), sidebarTint.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor), sidebarTint.topAnchor.constraint(equalTo: sidebar.topAnchor), sidebarTint.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor),
+      nav.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 38), nav.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14), nav.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
+      addressField.topAnchor.constraint(equalTo: nav.bottomAnchor, constant: 10), addressField.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10), addressField.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10), addressField.heightAnchor.constraint(equalToConstant: 30),
+      spacePopup.topAnchor.constraint(equalTo: addressField.bottomAnchor, constant: 10), spacePopup.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 8), spacePopup.trailingAnchor.constraint(lessThanOrEqualTo: sidebar.trailingAnchor, constant: -8),
+      scroll.topAnchor.constraint(equalTo: spacePopup.bottomAnchor, constant: 4), scroll.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 4), scroll.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -4), scroll.bottomAnchor.constraint(equalTo: newTabButton.topAnchor, constant: -6),
+      newTabButton.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14), newTabButton.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14), newTabButton.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -12), newTabButton.heightAnchor.constraint(equalToConstant: 28),
+      mainTint.leadingAnchor.constraint(equalTo: main.leadingAnchor), mainTint.trailingAnchor.constraint(equalTo: main.trailingAnchor), mainTint.topAnchor.constraint(equalTo: main.topAnchor), mainTint.bottomAnchor.constraint(equalTo: main.bottomAnchor),
+      content.topAnchor.constraint(equalTo: main.topAnchor, constant: pad), content.leadingAnchor.constraint(equalTo: main.leadingAnchor), content.trailingAnchor.constraint(equalTo: main.trailingAnchor, constant: -pad), content.bottomAnchor.constraint(equalTo: main.bottomAnchor, constant: -pad),
+      cardOverlay.leadingAnchor.constraint(equalTo: main.leadingAnchor), cardOverlay.trailingAnchor.constraint(equalTo: main.trailingAnchor), cardOverlay.topAnchor.constraint(equalTo: main.topAnchor), cardOverlay.bottomAnchor.constraint(equalTo: main.bottomAnchor),
+      progress.topAnchor.constraint(equalTo: content.topAnchor), progress.leadingAnchor.constraint(equalTo: content.leadingAnchor), progress.trailingAnchor.constraint(equalTo: content.trailingAnchor), progress.heightAnchor.constraint(equalToConstant: 3),
     ])
-    split.setPosition(250, ofDividerAt: 0)
+    split.setPosition(260, ofDividerAt: 0)
+    applySpaceColours()
+  }
+  /// Re-tint the frame, sidebar and accents for the window's current space.
+  private func applySpaceColours() {
+    let sp = space
+    mainTint.color = SpacePalette.frame(for: sp); sidebarTint.color = SpacePalette.frame(for: sp); cardOverlay.frameColor = SpacePalette.frame(for: sp)
+    progress.contentFilters = []
   }
 
   // MARK: state -> UI
@@ -130,6 +143,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
       if let s = w.selected, let r = rows.firstIndex(of: s) { table.selectRowIndexes([r], byExtendingSelection: false) } else { table.deselectAll(nil) }
       updatingSelection = false
     }
+    applySpaceColours()
+    fetchMissingIcons(for: rows)
     attachSelected()
     let t = w.selected.flatMap { engine.tab($0) }
     window.title = w.selected.map(title(for:)) ?? "Browser"
@@ -162,24 +177,22 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     if !isEditingAddress { window.makeFirstResponder(view) }
   }
 
+  /// Ask the favicon store for icons of finished-loading, awake tabs (a few at a time; one try per site per run).
+  private func fetchMissingIcons(for ids: [TabID]) {
+    for id in ids {
+      guard let tab = engine.tab(id) as? WebKitTab, tab.isLive, !tab.isLoadingPage, let url = tab.url ?? URL(string: engine.state.tabs[id]?.url ?? ""), let host = url.host, url.scheme == "https" || url.scheme == "http", app.favicons.wants(host) else { continue }
+      let web = tab.webView, origin = (url.scheme ?? "https") + "://" + host + (url.port.map { ":\($0)" } ?? "")
+      Task { @MainActor in await app.favicons.fetch(host: host, from: web, origin: origin) }
+    }
+  }
+
   // MARK: table
   func numberOfRows(in t: NSTableView) -> Int { rows.count }
   func tableView(_ t: NSTableView, viewFor col: NSTableColumn?, row: Int) -> NSView? {
     guard row < rows.count else { return nil }
-    let id = rows[row]; let cell = NSTableCellView()
-    let live = engine.tab(id)?.isLive ?? false
-    let dot = NSImageView(image: NSImage(systemSymbolName: live ? "circle.fill" : "moon.zzz", accessibilityDescription: live ? "awake" : "sleeping") ?? NSImage())
-    dot.contentTintColor = live ? .systemGreen : .tertiaryLabelColor; dot.translatesAutoresizingMaskIntoConstraints = false
-    let label = NSTextField(labelWithString: title(for: id)); label.lineBreakMode = .byTruncatingTail; label.textColor = live ? .labelColor : .secondaryLabelColor; label.translatesAutoresizingMaskIntoConstraints = false
-    let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab") ?? NSImage(), target: self, action: #selector(closeRowClicked(_:)))
-    close.isBordered = false; close.tag = row; close.translatesAutoresizingMaskIntoConstraints = false
-    cell.addSubview(dot); cell.addSubview(label); cell.addSubview(close)
-    NSLayoutConstraint.activate([
-      dot.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8), dot.centerYAnchor.constraint(equalTo: cell.centerYAnchor), dot.widthAnchor.constraint(equalToConstant: 12),
-      label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 8), label.centerYAnchor.constraint(equalTo: cell.centerYAnchor), label.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -4),
-      close.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8), close.centerYAnchor.constraint(equalTo: cell.centerYAnchor), close.widthAnchor.constraint(equalToConstant: 16),
-    ])
-    return cell
+    let id = rows[row]
+    let host = engine.state.tabs[id].flatMap { URL(string: $0.url)?.host } ?? ""
+    return TabCell(title: title(for: id), icon: app.favicons.image(for: host), awake: engine.tab(id)?.isLive ?? false, closeTarget: self, closeAction: #selector(closeRowClicked(_:)), tag: row)
   }
   func tableViewSelectionDidChange(_ n: Notification) {
     guard !updatingSelection, table.selectedRow >= 0, table.selectedRow < rows.count else { return }

@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   var factory: WebKitTabFactory!
   var extensions: ExtensionsUI!
   var passkeyUI: PasskeyUI!
+  var favicons: FaviconStore!
   var controllers: [WindowID: BrowserWindowController] = [:]
   private var recentWindows: [WindowID] = []       // most recently key/shown first
   private var finishedDownloads = 0
@@ -62,6 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     extensions = ExtensionsUI(app: self, host: host, root: dir.appendingPathComponent("extensions"))
     factory.externalOpenHandler = { NSWorkspace.shared.open($0) }
     passkeyUI = PasskeyUI(app: self)
+    favicons = FaviconStore(dir: dir.appendingPathComponent("favicons"))
+    favicons.onUpdate = { [weak self] in self?.syncWindows() }
     factory.passkeys.performer = { [weak self] kind, rp, origin, ctap in
       guard let self else { throw CancellationError() }
       return try await self.passkeyUI.perform(kind: kind, rpId: rp, origin: origin, ctap: ctap)

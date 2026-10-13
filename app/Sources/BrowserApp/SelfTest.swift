@@ -220,6 +220,37 @@ struct SelfTest {
         check(app.extensions.host.records.isEmpty, "extensions: uninstall forgets the registration")
       } else { check(false, "extensions: self-test package could not be prepared") }
     }
+    // 13. tab icons: a page's own favicon is fetched and shown; a page without one stays an empty square
+    do {
+      c1.newTab(); c1.addressField.stringValue = "\(base)/a.html"; c1.submitAddress()
+      let got = await wait(15) { app.favicons.image(for: "127.0.0.1") != nil }
+      check(got, "favicon: the site's icon (/favicon.ico) is downloaded and kept for its host")
+      check(app.favicons.image(for: "no-icon.example") == nil && !FaviconStore.allowed(URL(string: "file:///etc/passwd")!, pageHost: "x") && !FaviconStore.allowed(URL(string: "http://evil.example/i.png")!, pageHost: "evil.example") && FaviconStore.allowed(URL(string: "https://a.example/i.png")!, pageHost: "a.example"), "favicon: unknown hosts have no icon; file:, and http for non-local sites, are never fetched")
+      c1.closeSelectedTab()
+    }
+    // Optional: SELFTEST_FPS=<url> measures the page's frame rate for 1.5 s right after load, inside the real window (UI-cost check; not part of the gate).
+    if let url = ProcessInfo.processInfo.environment["SELFTEST_FPS"], let c = app.controllers.values.first {
+      c.newTab(); c.addressField.stringValue = url; c.submitAddress()
+      try? await Task.sleep(nanoseconds: 3_000_000_000)
+      if let w = (c.selected.flatMap { e.tab($0) } as? WebKitTab)?.webView {
+        let js = "new Promise(r=>{const tick=setInterval(()=>window.dispatchEvent(new Event('pointermove')),50);let n=0;const t0=performance.now();function f(){n++;if(performance.now()-t0<1500)requestAnimationFrame(f);else{clearInterval(tick);r(n*1000/(performance.now()-t0))}}requestAnimationFrame(f)})"
+        let v = try? await w.callAsyncJavaScript("return await \(js)", arguments: [:], in: nil, contentWorld: .page)
+        print("FPS in window: \(v ?? "nil")  (window \(Int(c.window.frame.width))x\(Int(c.window.frame.height)))")
+      }
+    }
+    // Optional: SELFTEST_SHOTS=<dir> writes PNGs of the window in light and dark (design review aid; not part of the gate).
+    if let dir = ProcessInfo.processInfo.environment["SELFTEST_SHOTS"], let c = app.controllers.values.first {
+      for _ in 0..<5 { c.newTab(); c.addressField.stringValue = "\(base)/\(Bool.random() ? "a" : "b").html"; c.submitAddress(); await settle() }
+      try? await Task.sleep(nanoseconds: 1_200_000_000)
+      for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
+        c.window.appearance = NSAppearance(named: appearance); c.window.displayIfNeeded(); try? await Task.sleep(nanoseconds: 600_000_000)
+        if let v = c.window.contentView?.superview ?? c.window.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+          v.cacheDisplay(in: v.bounds, to: rep)
+          try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("ui-\(name).png"))
+        }
+      }
+      c.window.appearance = nil
+    }
     print(failures.isEmpty ? "SELFTEST PASS" : "SELFTEST FAIL (\(failures.count))")
     if getenv("SELFTEST_HOLD") != nil { print("HOLDING for leaks inspection (pid \(getpid()))"); return }      // stay alive so `leaks` can inspect the live process
     exit(failures.isEmpty ? 0 : 1)

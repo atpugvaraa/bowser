@@ -6,6 +6,7 @@ APP=$("$R/scripts/build-app.sh") || exit 1
 D="$R/app/.build/ui-selftest-pages"; mkdir -p "$D"
 echo '<html><head><title>Page A</title></head><body>A</body></html>' > "$D/a.html"
 echo '<html><head><title>Page B</title></head><body>B</body></html>' > "$D/b.html"
+python3 -I -c "import zlib,struct,sys;w=h=16;raw=b''.join(b'\\x00'+b'\\x2a\\x7f\\xd4\\xff'*w for _ in range(h));c=lambda t,d:struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff);open(sys.argv[1],'wb').write(b'\\x89PNG\\r\\n\\x1a\\n'+c(b'IHDR',struct.pack('>IIBBBBB',w,h,8,6,0,0,0))+c(b'IDAT',zlib.compress(raw))+c(b'IEND',b''))" "$D/favicon.ico"
 PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
 python3 "$R/scripts/testserver.py" "$PORT" "$D" >/dev/null 2>&1 & SRV=$!
 trap 'kill $SRV 2>/dev/null' EXIT
