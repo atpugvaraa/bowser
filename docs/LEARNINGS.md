@@ -120,3 +120,6 @@ Spikes are throwaway. These patterns must NOT carry into product code:
 - **GPU/fps:** 30k-fish WebGL aquarium: WKWebView 46 fps = Safari 45 fps; Chrome 81 fps. The WebContent process is ~85% of ONE core (draw-call bound); the 60 fps flag, GPU-process flags and timer queries changed nothing. Not fixable with WebKit settings. `PreferPageRenderingUpdatesNear60FPSEnabled=0` DOES lift light pages from 60 to ~120 fps (ProMotion) but costs power; left at the default.
 - **Leaks:** ASan/TSan/UBSan: 426 checks clean. `leaks`: 416 leaks / 26 KB, all Apple LinkPresentation XPC (LNDaemon), none ours. Host memory 56 -> 107 MB (120 cycles) -> 109 MB (480 cycles): plateau, no leak.
 - Capabilities identical to Safari/Chrome: WASM SIMD/threads/exceptions/4 GB, WebGL2, WebGPU, AudioWorklet, gamepad, pointer lock. Raw JS/WASM speed same as Safari.
+
+## 2026-10-13 power redo (docs/results/power-20261013-105503.md)
+Clean run, every row valid with page-reported fps. This browser == Safari on power: aquarium-30k 8.7 W vs 8.7 W (both 45 fps); webgl-shader 0.76 W vs 0.88 W (both 60 fps); idle 272 mW. The earlier "7 W vs 0.5 W" table was a measurement artifact (page not rendering in Safari). Chrome draws more because it renders more: 94 fps / 120 fps at 12.2 W / 1.2 W. Per frame, WebKit is cheaper, so the fps gap is a cap, not an efficiency gap.
