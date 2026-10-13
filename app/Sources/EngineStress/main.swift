@@ -469,6 +469,8 @@ Task { @MainActor in
     return JSON.stringify(out);
     """
     NSApp.activate(ignoringOtherApps: true); win.makeKeyAndOrderFront(nil); try? await Task.sleep(nanoseconds: 300_000_000)
+    let keepKey = Task { @MainActor in while !Task.isCancelled { if !win.isKeyWindow { NSApp.activate(ignoringOtherApps: true); win.makeKeyAndOrderFront(nil) }; try? await Task.sleep(nanoseconds: 150_000_000) } }
+    defer { keepKey.cancel() }
     var res: Any?; do { res = try await w.callAsyncJavaScript(js, arguments: [:], in: nil, contentWorld: .page) } catch { log("- passkey page script error: \(error)") }
     let m = ((res as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) }) as? [String: Any] ?? [:]
     log("- passkeys through a real page: \(m)  origins seen by native: \(seenOrigins)")
@@ -537,6 +539,21 @@ Task { @MainActor in
     if back != systemDark { fail("appearance: switching back to Follow system did not restore the system scheme") }
     if w.underPageBackgroundColor == nil { fail("appearance: no under-page background") }
     win.close()
+  }
+
+  // 10g. Speed tuning: the persistent profile store has Safari-style speculative revalidation, and the helpers are safe to call
+  do {
+    let fixed = UUID(uuidString: "00000000-0000-4000-8000-00000000BE4F")!
+    let store = SpeedTuning.persistentStore(identifier: fixed, speculativeRevalidation: true)
+    let cfg = store.value(forKey: "_configuration") as? NSObject
+    let on = (cfg?.value(forKey: "networkCacheSpeculativeValidationEnabled") as? Bool) ?? false
+    let plain = SpeedTuning.persistentStore(identifier: UUID(uuidString: "00000000-0000-4000-8000-00000000BE50")!, speculativeRevalidation: false)       // a different id: WebKit hands back the first store made for an id
+    let off = ((plain.value(forKey: "_configuration") as? NSObject)?.value(forKey: "networkCacheSpeculativeValidationEnabled") as? Bool) ?? true
+    log("- speed tuning: speculative revalidation on=\(on) (plain store: \(off)); persistent=\(store.isPersistent)")
+    if !on { fail("speed: the profile store does not have speculative revalidation enabled") }
+    if off { fail("speed: opting out of speculative revalidation did not work") }
+    if !store.isPersistent { fail("speed: the tuned store is not persistent") }
+    let w = WKWebView(frame: .init(x: 0, y: 0, width: 200, height: 100)); SpeedTuning.preconnect(URL(string: "https://example.com/")!, using: w); SpeedTuning.preconnect(URL(string: "javascript:alert(1)")!, using: w)
   }
 
   // 11. Navigation security, popups, errors, downloads, capture — real WebKit

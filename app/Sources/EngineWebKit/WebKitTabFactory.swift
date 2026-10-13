@@ -25,6 +25,8 @@ public final class WebKitTabFactory: TabFactory {
   // first request of a page is already covered (prepare it before creating any tab).
   /// Extension engine; set before the first tab is made so every profile's configuration gets its controller.
   public var extensionHost: ExtensionHost?
+  /// Safari-style speculative cache revalidation for persistent profiles (see SpeedTuning). On by default in the app; benchmarks flip it.
+  public var speculativeRevalidation = true
   /// Phone (hybrid) passkeys: pages' navigator.credentials.create/get({publicKey}) are answered here. Set `passkeys.performer` to enable.
   public let passkeys = PasskeyBridge()
   private var blockingList: WKContentRuleList?
@@ -105,7 +107,7 @@ public final class WebKitTabFactory: TabFactory {
   public func configuration(for profile: ProfileID) -> WKWebViewConfiguration {
     if let c = configs[profile] { return c }
     let c = WKWebViewConfiguration()
-    c.websiteDataStore = persistent ? WKWebsiteDataStore(forIdentifier: profile.raw) : .nonPersistent()
+    c.websiteDataStore = persistent ? SpeedTuning.persistentStore(identifier: profile.raw, speculativeRevalidation: speculativeRevalidation) : .nonPersistent()
     if Self.canCapture { WebKitFeatureFlags.set("MediaDevicesEnabled", true, for: c.preferences) }       // calls/meetings: only when signed with the entitlements + usage strings
     if governor.enabled && (NSScreen.main?.maximumFramesPerSecond ?? 60) > 60 {                 // WebKit caps pages near 60 fps unless told not to; the governor owns the ceiling instead
       WebKitFeatureFlags.set("PreferPageRenderingUpdatesNear60FPSEnabled", false, for: c.preferences)

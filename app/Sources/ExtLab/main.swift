@@ -30,16 +30,17 @@ if args.count >= 3, args[1] == "bench" {
       w = WKWebView(frame: .init(x: 0, y: 0, width: 1280, height: 800), configuration: c)
     } else {
       let persist = args.contains("--persistent")           // one fixed throwaway profile, reused across runs, to measure cache-warm repeat visits
-      let factory = WebKitTabFactory(persistent: persist); if args.contains("--ext") { factory.extensionHost = ExtensionHost(registry: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("b-\(UUID().uuidString).json")) }
-      let t = factory.makeTab(id: TabID(), url: nil, profile: ProfileID(UUID(uuidString: "00000000-0000-4000-8000-00000000BE4C")!), restoredState: nil) as! WebKitTab
+      let factory = WebKitTabFactory(persistent: persist); factory.speculativeRevalidation = args.contains("--spec"); if args.contains("--ext") { factory.extensionHost = ExtensionHost(registry: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("b-\(UUID().uuidString).json")) }
+      let t = factory.makeTab(id: TabID(), url: nil, profile: ProfileID(UUID(uuidString: args.contains("--spec") ? "00000000-0000-4000-8000-00000000BE4E" : "00000000-0000-4000-8000-00000000BE4C")!), restoredState: nil) as! WebKitTab
       keep = (factory, t); w = t.ensureLive()
     }
     let win = NSWindow(contentRect: .init(x: 0, y: 0, width: 1280, height: 800), styleMask: [.titled], backing: .buffered, defer: false); win.isReleasedWhenClosed = false; win.contentView = w; win.orderFrontRegardless()
+    if args.contains("--preconnect") { SpeedTuning.preconnect(URL(string: args[2])!, using: w); try? await Task.sleep(nanoseconds: 600_000_000) }
     w.load(URLRequest(url: URL(string: args[2])!))
     var done = false
     for _ in 0..<80 { try? await Task.sleep(nanoseconds: 500_000_000); if (try? await w.evaluateJavaScript("location.href!=='about:blank'&&document.readyState==='complete'&&((performance.getEntriesByType('navigation')[0]||{}).loadEventEnd>0)")) as? Bool == true { done = true; break } }
     try? await Task.sleep(nanoseconds: 1_500_000_000)
-    let r = try? await w.evaluateJavaScript("JSON.stringify((()=>{const n=performance.getEntriesByType('navigation')[0]||{};const fcp=(performance.getEntriesByName('first-contentful-paint')[0]||{}).startTime;return {dcl:Math.round(n.domContentLoadedEventEnd),load:Math.round(n.loadEventEnd),fcp:Math.round(fcp||-1),res:performance.getEntriesByType('resource').length}})())")
+    let r = try? await w.evaluateJavaScript("JSON.stringify((()=>{const n=performance.getEntriesByType('navigation')[0]||{};const fcp=(performance.getEntriesByName('first-contentful-paint')[0]||{}).startTime;return {dcl:Math.round(n.domContentLoadedEventEnd),load:Math.round(n.loadEventEnd),fcp:Math.round(fcp||-1),ttfb:Math.round(n.responseStart),conn:Math.round(n.connectEnd-n.connectStart),res:performance.getEntriesByType('resource').length}})())")
     print("BENCH \(plain ? (args.contains("--legacy") ? "legacy" : "plain") : "product") done=\(done) \(r ?? "nil")"); _ = keep
     exit(0)
   }
