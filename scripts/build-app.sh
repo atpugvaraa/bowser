@@ -5,12 +5,13 @@
 R="$(cd "$(dirname "$0")/.." && pwd)"
 CFG=Debug; FLAGS=(); [[ "$1" == "--release" ]] && { CFG=Release; FLAGS=(-c release --product BrowserApp); }
 (cd "$R/app" && swift build "${FLAGS[@]}" >"$R/app/.build/app-build.log" 2>&1) || { echo "BUILD FAILED"; grep -E "error" "$R/app/.build/app-build.log" | head -5; exit 1; }
+BUILDID="$(git -C "$R" rev-parse --short HEAD 2>/dev/null)-$(date +%m%d-%H%M)"
 A="$R/app/.build/BrowserApp/Browser.app"; mkdir -p "$A/Contents/MacOS" "$A/Contents/Resources"
 cp "$R/app/.build/out/Products/$CFG/BrowserApp" "$A/Contents/MacOS/Browser"
-cat > "$A/Contents/Info.plist" <<'P'
+cat > "$A/Contents/Info.plist" <<P
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>Browser</string><key>CFBundleIdentifier</key><string>dev.kd.browser</string><key>CFBundleName</key><string>Browser</string>
-<key>CFBundleDisplayName</key><string>Browser</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>CFBundleShortVersionString</key><string>0.1</string>
+<key>CFBundleDisplayName</key><string>Browser</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>CFBundleShortVersionString</key><string>0.1 ($BUILDID)</string>
 <key>LSMinimumSystemVersion</key><string>15.4</string><key>NSHighResolutionCapable</key><true/><key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSBluetoothAlwaysUsageDescription</key><string>Used only while signing in with a passkey on your phone: it listens for your phone's nearby sign-in request.</string>
 <key>NSCameraUsageDescription</key><string>Websites you allow can use the camera (video calls).</string><key>NSMicrophoneUsageDescription</key><string>Websites you allow can use the microphone (calls, voice input).</string>
