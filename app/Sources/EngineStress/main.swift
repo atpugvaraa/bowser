@@ -4,6 +4,7 @@ import ContentBlocking
 import EngineCore
 import EngineWebKit
 import Extensions
+import Hybrid
 import Persistence
 import Foundation
 import Lifecycle
@@ -413,6 +414,60 @@ Task { @MainActor in
     if blockedAttrs != ",,|complete|?blocked" { fail("extensions: the blocked-sites list did not stop a granted extension (\(blockedAttrs))") }
     win.close()
   } catch { fail("extensions: \(error)") }
+
+  // 10d. Phone passkeys through a real page: navigator.credentials.create/get -> shim -> native bridge -> hybrid client -> simulated phone
+  do {
+    let hub = LoopbackHub(), ble = SimulatedBLE(), auth = SoftwareAuthenticator()
+    let phone = SimulatedPhone(authenticator: auth, hub: hub, ble: ble)
+    let factory = WebKitTabFactory(persistent: false)
+    nonisolated(unsafe) var seenOrigins: [String] = []
+    factory.passkeys.performer = { kind, rp, origin, ctap in
+      seenOrigins.append(origin + "|" + rp)
+      let client = HybridClient(scanner: ble, timeout: 20, connect: { try await hub.connect($0) })
+      return try await client.run(flow: kind == "create" ? "mc" : "ga", ctapRequest: ctap, onQR: { qr in Task { try? await phone.scan(qr) } })
+    }
+    let t = factory.makeTab(id: TabID(), url: nil, profile: ProfileID(), restoredState: nil) as! WebKitTab
+    let w = t.ensureLive()
+    let win = NSWindow(contentRect: .init(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false); win.isReleasedWhenClosed = false; win.contentView = w; win.orderFrontRegardless()
+    let port = URL(string: baseURL!)!.port!
+    w.load(URLRequest(url: URL(string: "http://localhost:\(port)/exttest.html")!))
+    _ = await waitUntil(20) { w.isLoading == false && w.url != nil }; try? await Task.sleep(nanoseconds: 800_000_000)
+    let js = """
+    const out = {};
+    out.secure = isSecureContext; out.hasPKC = typeof PublicKeyCredential;
+    out.uvpaa = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+    const c = await navigator.credentials.create({ publicKey: { challenge: new Uint8Array(32).fill(1), rp: { name: 'T' }, user: { id: new Uint8Array([1, 2]), name: 'kd', displayName: 'KD' }, pubKeyCredParams: [{ type: 'public-key', alg: -7 }], authenticatorSelection: { residentKey: 'required' } } });
+    out.created = { type: c.type, inst: c instanceof PublicKeyCredential, transports: c.response.getTransports(), alg: c.response.getPublicKeyAlgorithm(), pk: c.response.getPublicKey().byteLength, idMatchesRaw: c.id.length > 20 };
+    const cd = JSON.parse(new TextDecoder().decode(c.response.clientDataJSON)); out.cd = cd;
+    const g = await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32).fill(2), userVerification: 'preferred' } });
+    out.got = { same: g.id === c.id, sig: g.response.signature.byteLength > 60, uh: new Uint8Array(g.response.userHandle).join(','), type: g.type };
+    const ad = g.response.authenticatorData; const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('localhost'));
+    out.rpHashOK = hex(ad.slice(0, 32)) === hex(h);
+    out.json = typeof g.toJSON().response.signature;
+    try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32), rpId: 'example.com' } }); out.badRp = 'ALLOWED'; } catch (e) { out.badRp = e.name; }
+    try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32).fill(5), allowCredentials: [{ type: 'public-key', id: new Uint8Array([9, 9, 9]) }] } }); out.noCred = 'ALLOWED'; } catch (e) { out.noCred = e.name; }
+    const ac = new AbortController(); ac.abort();
+    try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32) }, signal: ac.signal }); out.abort = 'ALLOWED'; } catch (e) { out.abort = e.name; }
+    return JSON.stringify(out);
+    """
+    let res = try? await w.callAsyncJavaScript(js, arguments: [:], in: nil, contentWorld: .page)
+    let m = ((res as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) }) as? [String: Any] ?? [:]
+    log("- passkeys through a real page: \(m)  origins seen by native: \(seenOrigins)")
+    let created = m["created"] as? [String: Any] ?? [:], got = m["got"] as? [String: Any] ?? [:], cd = m["cd"] as? [String: Any] ?? [:]
+    if m.isEmpty { fail("passkeys: the page script threw before returning results") }
+    if (m["uvpaa"] as? Bool) != false { fail("passkeys: isUserVerifyingPlatformAuthenticatorAvailable must be false (no platform authenticator)") }
+    if (created["type"] as? String) != "public-key" || (created["inst"] as? Bool) != true || (created["alg"] as? Int) != -7 || (created["pk"] as? Int ?? 0) < 60 { fail("passkeys: create() did not return a usable PublicKeyCredential \(created)") }
+    if (created["transports"] as? [String]) != ["hybrid"] { fail("passkeys: transports should be hybrid") }
+    if (cd["type"] as? String) != "webauthn.create" || (cd["origin"] as? String) != "http://localhost:\(port)" { fail("passkeys: clientDataJSON origin/type wrong \(cd)") }
+    if (got["same"] as? Bool) != true || (got["sig"] as? Bool) != true || (got["uh"] as? String) != "1,2" { fail("passkeys: get() returned the wrong credential \(got)") }
+    if (m["rpHashOK"] as? Bool) != true { fail("passkeys: authenticatorData rpIdHash is not sha256(localhost)") }
+    if (m["badRp"] as? String) != "SecurityError" { fail("passkeys: a page asking for another site's rpId was not refused (\(m["badRp"] ?? "nil"))") }
+    if (m["noCred"] as? String) != "NotAllowedError" { fail("passkeys: no-matching-credential should be NotAllowedError (\(m["noCred"] ?? "nil"))") }
+    if (m["abort"] as? String) != "AbortError" { fail("passkeys: an aborted signal should reject with AbortError (\(m["abort"] ?? "nil"))") }
+    if seenOrigins.contains(where: { !$0.hasPrefix("http://localhost:\(port)|localhost") }) { fail("passkeys: native saw a wrong origin/rpId \(seenOrigins)") }
+    win.close()
+  }
 
   // 11. Navigation security, popups, errors, downloads, capture — real WebKit
   do {

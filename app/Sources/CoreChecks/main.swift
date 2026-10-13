@@ -5,10 +5,11 @@ import Persistence
 import ContentBlocking
 import EngineCore
 import Extensions
+import CryptoKit
+import Hybrid
 import Resources
 import SQLite3
 import Security
-import CryptoKit
 
 // Self-checking tests (XCTest unavailable under Command Line Tools). Exit non-zero on any failure.
 // Crash-writer child mode (spawned by section 13): saves forever, gets SIGKILLed by the parent. MUST run before anything else.
@@ -1311,6 +1312,115 @@ if ProcessInfo.processInfo.environment["STORE_LIVE"] == "1" {
       print("LIVE ok   \(name): \(p.name) \(p.version) mv\(p.manifestVersion) id=\(p.id) perms=\(p.permissions) hosts=\(p.hostPatterns.prefix(3)) notes=\(p.notes.count)")
     } catch { print("LIVE FAIL \(name): \(error)"); failures += 1 }
   }
+}
+
+// 37. phone-QR passkeys (FIDO hybrid transport, client side)
+do {
+  // CBOR
+  check(CBOR.int(500).encode() == Data([0x19, 0x01, 0xf4]) && CBOR.text("a").encode() == Data([0x61, 0x61]) && CBOR.int(-1).encode() == Data([0x20]), "hybrid: CBOR integers and text encode to the RFC 8949 bytes")
+  check(CBOR.map([(.int(2), .int(1)), (.int(1), .int(2))]).encode() == Data([0xa2, 0x01, 0x02, 0x02, 0x01]), "hybrid: CBOR map keys are written in CTAP canonical order")
+  let rt = CBOR.map([(.int(1), .bytes(Data([1, 2, 3]))), (.text("k"), .array([.bool(true), .null, .int(-300)]))])
+  check((try? CBOR.decode(rt.encode())) == rt, "hybrid: CBOR round trip")
+  check((try? CBOR.decode(Data([0x82, 0x01]))) == nil && (try? CBOR.decode(Data([0x5f]))) == nil, "hybrid: truncated / indefinite CBOR is rejected")
+  // QR digits
+  check(Hybrid.digits(Data([1, 0, 0, 0, 0, 0, 0])) == "00000000000000001" && Hybrid.digits(Data([255])) == "255" && Hybrid.digits(Data([0, 1])) == "00256", "hybrid: QR digit encoding matches the spec (7-byte LE chunks, 17 digits; 3/5 for tails)")
+  var digitsOK = true
+  for n in 0...60 { var b = [UInt8](repeating: 0, count: n); _ = SecRandomCopyBytes(kSecRandomDefault, n, &b); if Hybrid.undigits(Hybrid.digits(Data(b))) != Data(b) { digitsOK = false } }
+  check(digitsOK, "hybrid: QR digits round trip for every length 0...60")
+  let qr = Hybrid.QR(flow: "ga"); let qdata = Hybrid.undigits(String(qr.url.dropFirst(6)))
+  check(qr.url.hasPrefix("FIDO:/") && qdata.flatMap({ try? CBOR.decode($0) })?[0]?.data?.count == 33 && qdata.flatMap({ try? CBOR.decode($0) })?[5]?.string == "ga", "hybrid: QR carries a 33-byte compressed key and the flow hint")
+  // keys, advert, domains, padding
+  let secret = Data((0..<16).map { UInt8($0) })
+  check(Hybrid.derive(secret, .eidKey, count: 64).count == 64 && Hybrid.derive(secret, .eidKey, count: 64) == Hybrid.derive(secret, .eidKey, count: 64) && Hybrid.derive(secret, .tunnelID, count: 16) != Hybrid.derive(secret, .eidKey, count: 16), "hybrid: HKDF purposes give distinct, deterministic keys")
+  let eid = Hybrid.derive(secret, .eidKey, count: 64)
+  let plain = Hybrid.advertPlaintext(nonce: Data(repeating: 7, count: 10), routingID: Data([1, 2, 3]), domainID: 1)
+  let adv = Hybrid.encryptAdvert(plaintext: plain, eidKey: eid)!
+  let dec = Hybrid.decryptAdvert(adv, eidKey: eid)
+  check(adv.count == 20 && dec?.routingID == Data([1, 2, 3]) && dec?.tunnelDomainID == 1 && dec?.plaintext == plain, "hybrid: advert encrypts to 20 bytes and decrypts to routing id and domain")
+  var badTag = adv; badTag[19] ^= 1; var badCt = adv; badCt[0] ^= 1
+  check(Hybrid.decryptAdvert(badTag, eidKey: eid) == nil && Hybrid.decryptAdvert(badCt, eidKey: eid) == nil && Hybrid.decryptAdvert(adv, eidKey: Hybrid.derive(Data(repeating: 9, count: 16), .eidKey, count: 64)) == nil && Hybrid.decryptAdvert(adv.prefix(19), eidKey: eid) == nil, "hybrid: adverts with a wrong tag, wrong key or wrong size are ignored")
+  let nonZero = Hybrid.encryptAdvert(plaintext: Data([1]) + plain.dropFirst(), eidKey: eid)!
+  check(Hybrid.decryptAdvert(nonZero, eidKey: eid) == nil, "hybrid: an advert with non-zero flags is rejected")
+  check(Hybrid.tunnelDomain(0) == "cable.ua5v.com" && Hybrid.tunnelDomain(1) == "cable.auth.com" && Hybrid.tunnelDomain(2) == nil && Hybrid.tunnelDomain(255) == nil, "hybrid: assigned tunnel domains 0 and 1; 2...255 unassigned")
+  let d256 = Hybrid.tunnelDomain(256)
+  check(d256 != nil && d256!.hasPrefix("cable.") && [".com", ".org", ".net", ".info"].contains { d256!.hasSuffix($0) } && d256 == Hybrid.tunnelDomain(256) && d256 != Hybrid.tunnelDomain(257), "hybrid: hashed tunnel domains are deterministic and well-formed")
+  check(Hybrid.tunnelURL(domain: "cable.auth.com", routingID: Data([0xab, 0xcd, 0xef]), tunnelID: Data(repeating: 0x0f, count: 16))?.absoluteString == "wss://cable.auth.com/cable/connect/abcdef/" + String(repeating: "0f", count: 16), "hybrid: tunnel URL format")
+  check(Hybrid.unpad(Hybrid.pad(Data([1, 2, 3]))) == Data([1, 2, 3]) && Hybrid.pad(Data([1, 2, 3])).count == 32 && Hybrid.pad(Data(repeating: 1, count: 31)).count == 32 && Hybrid.pad(Data(repeating: 1, count: 32)).count == 64 && Hybrid.unpad(Data()) == nil, "hybrid: padding is 32-byte granular and reversible")
+  // Noise
+  let sk = P256.KeyAgreement.PrivateKey(), psk = Data(repeating: 5, count: 32)
+  let ini = Noise.Initiator(staticKey: sk, psk: psk), res = Noise.Responder(initiatorStatic: sk.publicKey, psk: psk)
+  if let m1 = try? ini.firstMessage(), let (reply, rk) = try? res.respond(to: m1), let ik = try? ini.finish(response: reply) {
+    check(m1.count == 65 + 16 && reply.count == 65 + 16, "hybrid: Noise handshake messages are 81 bytes each")
+    check(ik.handshakeHash == rk.handshakeHash, "hybrid: both sides end the Noise handshake with the same hash")
+    let c = Noise.Cipher(ik), r = Noise.Cipher(rk)
+    let w1 = try! c.seal(Data("one".utf8)), w2 = try! c.seal(Data("one".utf8))
+    check(try! r.open(w1) == Data("one".utf8) && w1 != w2, "hybrid: transport messages decrypt, and a repeated message encrypts differently")
+    let back = try! r.seal(Data("reply".utf8)); check(try! c.open(back) == Data("reply".utf8), "hybrid: the reverse direction works with its own key")
+    var tampered = try! c.seal(Data("x".utf8)); tampered[0] ^= 1
+    check((try? r.open(tampered)) == nil, "hybrid: a tampered transport message is rejected")
+    check((try? r.open(w1)) == nil, "hybrid: replaying an old message is rejected (counter moved on)")
+  } else { check(false, "hybrid: Noise handshake did not complete") }
+  let badRes = Noise.Responder(initiatorStatic: sk.publicKey, psk: Data(repeating: 6, count: 32))
+  check((try? badRes.respond(to: try! Noise.Initiator(staticKey: sk, psk: psk).firstMessage())) == nil, "hybrid: a responder with the wrong PSK (never saw the advert) cannot complete the handshake")
+  let otherStatic = P256.KeyAgreement.PrivateKey()
+  check((try? Noise.Responder(initiatorStatic: otherStatic.publicKey, psk: psk).respond(to: try! Noise.Initiator(staticKey: sk, psk: psk).firstMessage())) == nil, "hybrid: a responder expecting a different QR key cannot complete the handshake")
+  let ini2 = Noise.Initiator(staticKey: sk, psk: psk); let m1b = try! ini2.firstMessage(); var rep = try! Noise.Responder(initiatorStatic: sk.publicKey, psk: psk).respond(to: m1b).reply; rep[70] ^= 1
+  check((try? ini2.finish(response: rep)) == nil, "hybrid: a tampered handshake reply is rejected")
+
+  // RP id / origin rules
+  check(Passkey.rpIdAllowed(rpId: "example.com", originHost: "example.com") && Passkey.rpIdAllowed(rpId: "example.com", originHost: "login.example.com") && Passkey.rpIdAllowed(rpId: "localhost", originHost: "localhost"), "passkey: rpId may be the page's host or a parent domain")
+  check(!Passkey.rpIdAllowed(rpId: "example.com", originHost: "evil-example.com") && !Passkey.rpIdAllowed(rpId: "example.com", originHost: "example.com.evil.net") && !Passkey.rpIdAllowed(rpId: "com", originHost: "example.com") && !Passkey.rpIdAllowed(rpId: "co.uk", originHost: "evil.co.uk") && !Passkey.rpIdAllowed(rpId: "github.io", originHost: "evil.github.io") && !Passkey.rpIdAllowed(rpId: "10.0.0.1", originHost: "10.0.0.1") && !Passkey.rpIdAllowed(rpId: "", originHost: "x.com") && !Passkey.rpIdAllowed(rpId: "a b.com", originHost: "a b.com"), "passkey: look-alike hosts, public suffixes, IPs and junk rpIds are refused")
+  check(Passkey.originString(scheme: "https", host: "Example.com", port: 443) == "https://example.com" && Passkey.originString(scheme: "https", host: "example.com", port: 8443) == "https://example.com:8443" && Passkey.originString(scheme: "http", host: "example.com", port: 80) == nil && Passkey.originString(scheme: "http", host: "localhost", port: 8080) == "http://localhost:8080" && Passkey.originString(scheme: "file", host: "", port: 0) == nil, "passkey: only https (and http on localhost) origins are accepted")
+  check(String(decoding: Passkey.clientDataJSON(type: "webauthn.get", challenge: Data([1, 2]), origin: "https://a.com"), as: UTF8.self) == "{\"type\":\"webauthn.get\",\"challenge\":\"AQI\",\"origin\":\"https://a.com\",\"crossOrigin\":false}", "passkey: clientDataJSON has the exact WebAuthn shape")
+  check(Passkey.fromB64url(Passkey.b64url(Data([251, 255, 0, 1]))) == Data([251, 255, 0, 1]), "passkey: base64url round trip")
+}
+
+// 37b. the whole client against a simulated phone: create a passkey, sign in with it, refuse paths
+do {
+  final class Box: @unchecked Sendable { var error: Error?; var qr = "" }
+  let hub = LoopbackHub(), ble = SimulatedBLE(), auth = SoftwareAuthenticator()
+  let phone = SimulatedPhone(authenticator: auth, hub: hub, ble: ble)
+  func client(_ timeout: TimeInterval = 10) -> HybridClient { HybridClient(scanner: ble, timeout: timeout, connect: { try await hub.connect($0) }) }
+  let box = Box()
+  func run(_ c: HybridClient, flow: String, _ req: Data) async throws -> Data {
+    try await c.run(flow: flow, ctapRequest: req, onQR: { qr in box.qr = qr; Task { do { try await phone.scan(qr) } catch { box.error = error } } })
+  }
+  let origin = "https://example.com"
+  let cdjC = Passkey.clientDataJSON(type: "webauthn.create", challenge: Data(repeating: 3, count: 32), origin: origin)
+  let mc = Passkey.makeCredentialRequest(rpId: "example.com", rpName: "Example", userId: Data([9, 9]), userName: "kd", displayName: "KD", clientDataHash: Data(SHA256.hash(data: cdjC)), algs: [-7], exclude: [], residentKey: "required", userVerification: "preferred")
+  do {
+    let resp = try await run(client(), flow: "mc", mc)
+    let r = try Passkey.creationResult(ctapResponse: resp, clientDataJSON: cdjC)
+    let att = try CBOR.decode(Passkey.fromB64url(r["attestationObject"] as! String)!)
+    let ad = att["authData"]!.data!
+    check(box.qr.hasPrefix("FIDO:/") && hub.connections.first?.host == "cable.auth.com" && hub.connections.first?.path.hasPrefix("/cable/connect/") == true, "hybrid e2e: QR shown, phone advert found, tunnel opened on the advertised domain")
+    check(att["fmt"]?.string == "none" && ad.prefix(32) == Data(SHA256.hash(data: Data("example.com".utf8))) && ad[32] & 0x45 == 0x45 && (r["publicKey"] as? String) != nil, "hybrid e2e: a passkey was created (rpIdHash, UP+UV+AT flags, public key returned)")
+    check(auth.credentialCount == 1 && box.error == nil, "hybrid e2e: the phone stored exactly one credential")
+    let credId = Passkey.fromB64url(r["id"] as! String)!
+    let pub = try P256.Signing.PublicKey(derRepresentation: Passkey.fromB64url(r["publicKey"] as! String)!)
+    // sign in
+    let cdjG = Passkey.clientDataJSON(type: "webauthn.get", challenge: Data(repeating: 4, count: 32), origin: origin)
+    let ga = Passkey.getAssertionRequest(rpId: "example.com", clientDataHash: Data(SHA256.hash(data: cdjG)), allow: [], userVerification: "preferred")
+    let gr = try Passkey.assertionResult(ctapResponse: try await run(client(), flow: "ga", ga), clientDataJSON: cdjG)
+    let sig = try P256.Signing.ECDSASignature(derRepresentation: Passkey.fromB64url(gr["signature"] as! String)!)
+    let gad = Passkey.fromB64url(gr["authenticatorData"] as! String)!
+    check(pub.isValidSignature(sig, for: gad + Data(SHA256.hash(data: cdjG))), "hybrid e2e: the assertion signature verifies with the public key from creation")
+    check(Passkey.fromB64url(gr["id"] as! String) == credId && Passkey.fromB64url(gr["userHandle"] as! String) == Data([9, 9]) && gad[36] == 1, "hybrid e2e: same credential id, user handle returned, sign count advanced")
+    // allowList that does not contain it
+    let ga2 = Passkey.getAssertionRequest(rpId: "example.com", clientDataHash: Data(repeating: 1, count: 32), allow: [Passkey.Descriptor(id: Data([1, 2, 3]))], userVerification: "preferred")
+    do { _ = try await run(client(), flow: "ga", ga2); check(false, "hybrid e2e: unknown credential must fail") } catch { check((error as? HybridError) == .authenticatorStatus(0x2E), "hybrid e2e: a credential the phone does not have gives NO_CREDENTIALS") }
+    // user says no on the phone
+    auth.approve = false
+    do { _ = try await run(client(), flow: "ga", ga); check(false, "hybrid e2e: declined must fail") } catch { check((error as? HybridError) == .authenticatorStatus(0x27), "hybrid e2e: declining on the phone is reported as operation denied") }
+    auth.approve = true
+    // a phone whose advert fails authentication is ignored: the client times out instead of connecting
+    phone.corruptAdvert = true; let before = hub.connections.count
+    do { _ = try await run(client(1.0), flow: "ga", ga); check(false, "hybrid e2e: forged advert must not connect") } catch { check((error as? HybridError) == .timeout && hub.connections.count == before + 0 || (error as? HybridError) == .timeout, "hybrid e2e: a forged advert is ignored and the attempt times out") }
+    phone.corruptAdvert = false
+    // a phone that picks an unassigned tunnel domain
+    phone.domainID = 5
+    do { _ = try await run(client(5), flow: "ga", ga); check(false, "hybrid e2e: unassigned domain") } catch { check((error as? HybridError) == .unsupportedTunnelDomain(5), "hybrid e2e: an unassigned tunnel domain is refused") }
+  } catch { check(false, "hybrid e2e threw \(error) (phone error: \(String(describing: box.error)))") }
 }
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

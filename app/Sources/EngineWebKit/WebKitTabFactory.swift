@@ -3,6 +3,7 @@ import ContentBlocking
 import EngineCore
 import Foundation
 import AppKit
+import Hybrid
 import IOKit.ps
 import Security
 import WebKit
@@ -24,6 +25,8 @@ public final class WebKitTabFactory: TabFactory {
   // first request of a page is already covered (prepare it before creating any tab).
   /// Extension engine; set before the first tab is made so every profile's configuration gets its controller.
   public var extensionHost: ExtensionHost?
+  /// Phone (hybrid) passkeys: pages' navigator.credentials.create/get({publicKey}) are answered here. Set `passkeys.performer` to enable.
+  public let passkeys = PasskeyBridge()
   private var blockingList: WKContentRuleList?
   public private(set) var blockingActive = false
   /// Compile and activate (or deactivate) blocking. Safe to call at launch and when the user flips the setting.
@@ -61,6 +64,7 @@ public final class WebKitTabFactory: TabFactory {
     for c in configs.values {                                   // future page loads (this also re-adds the shared scripts, which are installed per controller)
       c.userContentController.removeAllUserScripts()
       c.userContentController.addUserScript(WebKitTab.dirtyScript); c.userContentController.addUserScript(WebKitTab.connScript)
+      c.userContentController.addUserScript(PasskeyBridge.script)
       c.userContentController.addUserScript(WKUserScript(source: g.source, injectionTime: .atDocumentStart, forMainFrameOnly: false))
     }
     for t in liveTabs.allObjects { t.webView?.evaluateJavaScript(g.updateJS, completionHandler: nil) }
@@ -86,6 +90,8 @@ public final class WebKitTabFactory: TabFactory {
       WebKitFeatureFlags.set("PreferPageRenderingUpdatesNear60FPSEnabled", false, for: c.preferences)
     }
     if governor.enabled { c.userContentController.addUserScript(WKUserScript(source: governor.source, injectionTime: .atDocumentStart, forMainFrameOnly: false)) }
+    c.userContentController.addUserScript(PasskeyBridge.script)
+    c.userContentController.addScriptMessageHandler(passkeys, contentWorld: .page, name: PasskeyBridge.handlerName)
     if let h = extensionHost { c.webExtensionController = h.controller(for: profile, store: c.websiteDataStore) }
     c.preferences.isElementFullscreenEnabled = true              // the player's fullscreen button (YouTube, Netflix, Prime) does nothing without this
     if let l = blockingList { c.userContentController.add(l) }

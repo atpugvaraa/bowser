@@ -1,16 +1,18 @@
 #!/bin/zsh
 # Build the browser as a real .app bundle. Signs with the first "Apple Development"/"Developer ID Application" identity in the keychain
 # (hardened runtime + camera/mic entitlements), else ad-hoc. Passkey entitlement: put Apple's approved profile at scripts/signing/embedded.provisionprofile
-# and the build uses scripts/signing/Browser-passkeys.entitlements. usage: scripts/build-app.sh
+# and the build uses scripts/signing/Browser-passkeys.entitlements. usage: scripts/build-app.sh [--release]
 R="$(cd "$(dirname "$0")/.." && pwd)"
-(cd "$R/app" && swift build >"$R/app/.build/app-build.log" 2>&1) || { echo "BUILD FAILED"; grep -E "error" "$R/app/.build/app-build.log" | head -5; exit 1; }
+CFG=Debug; FLAGS=(); [[ "$1" == "--release" ]] && { CFG=Release; FLAGS=(-c release); }
+(cd "$R/app" && swift build "${FLAGS[@]}" >"$R/app/.build/app-build.log" 2>&1) || { echo "BUILD FAILED"; grep -E "error" "$R/app/.build/app-build.log" | head -5; exit 1; }
 A="$R/app/.build/BrowserApp/Browser.app"; mkdir -p "$A/Contents/MacOS" "$A/Contents/Resources"
-cp "$R/app/.build/out/Products/Debug/BrowserApp" "$A/Contents/MacOS/Browser"
+cp "$R/app/.build/out/Products/$CFG/BrowserApp" "$A/Contents/MacOS/Browser"
 cat > "$A/Contents/Info.plist" <<'P'
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>Browser</string><key>CFBundleIdentifier</key><string>dev.kd.browser</string><key>CFBundleName</key><string>Browser</string>
 <key>CFBundleDisplayName</key><string>Browser</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>CFBundleShortVersionString</key><string>0.1</string>
 <key>LSMinimumSystemVersion</key><string>15.4</string><key>NSHighResolutionCapable</key><true/><key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSBluetoothAlwaysUsageDescription</key><string>Used only while signing in with a passkey on your phone: it listens for your phone's nearby sign-in request.</string>
 <key>NSCameraUsageDescription</key><string>Websites you allow can use the camera (video calls).</string><key>NSMicrophoneUsageDescription</key><string>Websites you allow can use the microphone (calls, voice input).</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoadsInWebContent</key><true/><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>

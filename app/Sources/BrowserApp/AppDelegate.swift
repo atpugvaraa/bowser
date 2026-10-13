@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   var session: SessionManager!
   var factory: WebKitTabFactory!
   var extensions: ExtensionsUI!
+  var passkeyUI: PasskeyUI!
   var controllers: [WindowID: BrowserWindowController] = [:]
   private var recentWindows: [WindowID] = []       // most recently key/shown first
   private var finishedDownloads = 0
@@ -60,6 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     factory.extensionHost = host
     extensions = ExtensionsUI(app: self, host: host, root: dir.appendingPathComponent("extensions"))
     factory.externalOpenHandler = { NSWorkspace.shared.open($0) }
+    passkeyUI = PasskeyUI(app: self)
+    factory.passkeys.performer = { [weak self] kind, rp, origin, ctap in
+      guard let self else { throw CancellationError() }
+      return try await self.passkeyUI.perform(kind: kind, rpId: rp, origin: origin, ctap: ctap)
+    }
+    factory.passkeys.cancelCurrent = { [weak self] in self?.passkeyUI.cancel() }
     var captureAllowed = Set<String>()                      // this session only; there is no UI to revoke a permanent grant yet
     factory.captureHandler = { host, cam, mic in
       let what = cam && mic ? "camera and microphone" : cam ? "camera" : "microphone"
