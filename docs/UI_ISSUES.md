@@ -17,7 +17,7 @@ Light mode has not been looked at yet; everything below was judged in dark mode.
 ## Still bad / needs work
 ### Sidebar
 1. ~~Sidebar was flat charcoal~~ — fixed: sidebar and page frame are now one space-tinted surface. Row/selection/hover colours were tuned for charcoal and still need checking on bright tints and in light mode.
-2. When hidden, there is no hover-to-reveal edge; only the toggle or its shortcut brings it back. The toggle overlaps the page card's corner.
+2. ~~No hover-to-reveal~~ — fixed: hovering a 6pt strip on the left edge floats the sidebar over the page (page does not move) and it leaves when the pointer does. Not yet checked with a real pointer (verified by calling the peek path offscreen); no shadow under the floating sidebar yet. The toggle still overlaps the page card's corner when hidden.
 3. Empty favorites tray ("Drag to add Favorites") takes ~70pt of prime space. Make it collapse to a thin drop target.
 4. Favorites tray rebuilds all tiles on every refresh (hover state lost, wasted layout). Diff against the previous tile data.
 5. Tray height numbers (48/44/8) are duplicated between controller and tray view; the tray should report its own height. Audio indicator is dead code (nothing passes `isPlayingAudio: true`).

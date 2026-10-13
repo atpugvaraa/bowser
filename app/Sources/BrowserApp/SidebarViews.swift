@@ -50,7 +50,7 @@ final class MatteBackgroundView: NSView {
         : NSColor(red: 0.955, green: 0.955, blue: 0.965, alpha: 1.0) // clean matte light
     }
     color.setFill()
-    dirtyRect.fill()
+    dirtyRect.intersection(bounds).fill()
   }
 }
 
@@ -120,6 +120,17 @@ class FlippedView: NSView {
   override var isFlipped: Bool { true }
 }
 
+/// Thin strip on the window's left edge: hovering it while the sidebar is hidden slides the sidebar out over the page (Arc).
+final class SidebarEdgeView: NSView {
+  var onHover: (() -> Void)?
+  private var area: NSTrackingArea?
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas(); if let t = area { removeTrackingArea(t) }
+    let t = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self); addTrackingArea(t); area = t
+  }
+  override func mouseEntered(with event: NSEvent) { onHover?() }
+}
+
 /// Dedicated sidebar container view handling matte background drawing, edge-drag resizing, and trackpad space gestures.
 final class AppKitSidebarContainerView: FlippedView {
   weak var controller: BrowserWindowController?
@@ -130,12 +141,19 @@ final class AppKitSidebarContainerView: FlippedView {
   private var initialWidthOnDrag: CGFloat = 0
 
   override var isOpaque: Bool { true }
+  var onMouseExit: (() -> Void)?
+  private var exitArea: NSTrackingArea?
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas(); if let t = exitArea { removeTrackingArea(t) }
+    let t = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self); addTrackingArea(t); exitArea = t
+  }
+  override func mouseExited(with event: NSEvent) { onMouseExit?() }
   /// The space's frame colour: sidebar and the strip around the page are one tinted surface (Arc), the page card floats on it.
   var fillColor: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
 
   override func draw(_ dirtyRect: NSRect) {
     fillColor.setFill()
-    dirtyRect.fill()
+    dirtyRect.intersection(bounds).fill()
   }
   override func viewDidChangeEffectiveAppearance() { needsDisplay = true }
 

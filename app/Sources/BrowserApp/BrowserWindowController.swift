@@ -42,6 +42,9 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   private var isSidebarVisible = true
   private var savedSidebarWidth: CGFloat = 260
   private var sidebarLeadingConstraint: NSLayoutConstraint?
+  private var mainLeadingConstraint: NSLayoutConstraint?        // the page's left edge; independent of the sidebar so a hovering sidebar floats over it
+  private var isPeeking = false
+  private let edgeView = SidebarEdgeView()
   private var sidebarWidthConstraint: NSLayoutConstraint?
   private var engine: BrowserEngine { app.engine }
 
@@ -157,11 +160,17 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     let main = FlippedView(); main.translatesAutoresizingMaskIntoConstraints = false
     [mainTint, content, progress, cardOverlay].forEach { main.addSubview($0) }
 
-    root.addSubview(sidebar)
     root.addSubview(main)
+    root.addSubview(edgeView)                          // above the page, below the sidebar
+    root.addSubview(sidebar)
+    edgeView.translatesAutoresizingMaskIntoConstraints = false
+    edgeView.onHover = { [weak self] in self?.peekSidebar(true) }
+    sidebar.onMouseExit = { [weak self] in self?.peekSidebar(false) }
     root.addSubview(sidebarToggleBtn)                  // outside the sidebar so it stays when the sidebar hides
     root.addSubview(commandBarOverlay)
 
+    let mainLeading = main.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: savedSidebarWidth)
+    self.mainLeadingConstraint = mainLeading
     let lead = sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor)
     let width = sidebar.widthAnchor.constraint(equalToConstant: savedSidebarWidth)
     self.sidebarLeadingConstraint = lead
@@ -225,7 +234,11 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
       scroll.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -4),
       scroll.bottomAnchor.constraint(equalTo: spacesDock.topAnchor, constant: -6),
 
-      main.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+      mainLeading,
+      edgeView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+      edgeView.topAnchor.constraint(equalTo: root.topAnchor, constant: 40),     // leave the traffic-light corner alone
+      edgeView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+      edgeView.widthAnchor.constraint(equalToConstant: 6),
       main.trailingAnchor.constraint(equalTo: root.trailingAnchor),
       main.topAnchor.constraint(equalTo: root.topAnchor),
       main.bottomAnchor.constraint(equalTo: root.bottomAnchor),
@@ -587,6 +600,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   func updateSidebarWidth(_ w: CGFloat) {
     savedSidebarWidth = w
     sidebarWidthConstraint?.constant = w
+    if isSidebarVisible { mainLeadingConstraint?.constant = w }
   }
 
   func toggleSidebar() {
@@ -595,16 +609,26 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
 
   func setSidebarVisible(_ visible: Bool, animated: Bool) {
     guard visible != isSidebarVisible else { return }
-    isSidebarVisible = visible
-    let targetLeading: CGFloat = visible ? 0 : -savedSidebarWidth
+    isSidebarVisible = visible; isPeeking = false
+    slideSidebar(lead: visible ? 0 : -savedSidebarWidth, pageLeading: visible ? savedSidebarWidth : 0, animated: animated)
+  }
+  /// Hover the left edge while the sidebar is hidden: it floats over the page and goes away when the pointer leaves it.
+  private func peekSidebar(_ show: Bool) {
+    guard !isSidebarVisible, show != isPeeking, !(show == false && sidebarDragging) else { return }
+    isPeeking = show
+    slideSidebar(lead: show ? 0 : -savedSidebarWidth, pageLeading: 0, animated: true)
+  }
+  private var sidebarDragging: Bool { NSEvent.pressedMouseButtons & 1 != 0 }
+  private func slideSidebar(lead: CGFloat, pageLeading: CGFloat, animated: Bool) {
     if animated {
       NSAnimationContext.runAnimationGroup { ctx in
         ctx.duration = 0.22
         ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        self.sidebarLeadingConstraint?.animator().constant = targetLeading
+        self.sidebarLeadingConstraint?.animator().constant = lead
+        self.mainLeadingConstraint?.animator().constant = pageLeading
       }
     } else {
-      sidebarLeadingConstraint?.constant = targetLeading
+      sidebarLeadingConstraint?.constant = lead; mainLeadingConstraint?.constant = pageLeading
     }
   }
 

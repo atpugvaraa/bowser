@@ -146,3 +146,5 @@ Clean run, every row valid with page-reported fps. This browser == Safari on pow
 ## Sidebar invisible (tint painted over it)
 `TintView` sits above the sidebar in z-order and filled the raw dirty rect, which spilled over the sidebar: it showed bare space tint but still took clicks. Fix: fill `r.intersection(bounds)`. Diagnose layout/paint bugs without screen-recording permission by rendering views with `bitmapImageRepForCachingDisplay` and hiding suspects one at a time.
 A dismissed favorites tray must be un-hidden when tabs are pinned, otherwise those tabs appear in no list.
+
+A view that paints above siblings must never `fill()` the raw dirty rect: clamp to `bounds` (`dirtyRect.intersection(bounds)`). Seen twice (TintView, then the sidebar once it was moved above the page). The page's left edge is its own constraint, not tied to the sidebar's trailing edge, so a peeking sidebar can float over it.
