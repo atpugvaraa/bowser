@@ -1,0 +1,24 @@
+## https://threejs.org/examples/webgl_morphtargets_horse.html
+RESULT {"title":"three.js webgl - morph targets - horse","url":"https://threejs.org/examples/webgl_morphtargets_horse.html","frames":1775,"secs":30.724,"long50":2,"worstMs":903,"errors":[],"coi":false,"canvases":3} webcontent_mb=112 cpu_pct=0 load_s=31 ua=safari
+## https://threejs.org/examples/webgl_instancing_performance.html
+RESULT {"title":"three.js webgl - instancing - performance","url":"https://threejs.org/examples/webgl_instancing_performance.html","frames":1801,"secs":31.069,"long50":2,"worstMs":922,"errors":[],"coi":false,"canvases":3} webcontent_mb=222 cpu_pct=0 load_s=31 ua=safari
+## https://threejs.org/examples/webgpu_compute_particles.html
+RESULT {"title":"three.js webgpu - compute particles","url":"https://threejs.org/examples/webgpu_compute_particles.html","frames":2621,"secs":30.907,"long50":2,"worstMs":1195,"errors":[],"coi":false,"canvases":5} webcontent_mb=401 cpu_pct=0 load_s=31 ua=safari
+## https://webglsamples.org/aquarium/aquarium.html
+RESULT {"title":"WebGL Aquarium","url":"https://webglsamples.org/aquarium/aquarium.html","frames":1331,"secs":29.903,"long50":5,"worstMs":5345,"errors":[],"coi":false,"canvases":1} webcontent_mb=188 cpu_pct=0 load_s=31 ua=safari
+## https://webglsamples.org/dynamic-cubemap/dynamic-cubemap.html
+RESULT {"title":"WebGL Dynamic Cubemap","url":"https://webglsamples.org/dynamic-cubemap/dynamic-cubemap.html","frames":1592,"secs":30.157,"long50":2,"worstMs":3558,"errors":[],"coi":false,"canvases":1} webcontent_mb=109 cpu_pct=0 load_s=31 ua=safari
+## https://editor.godotengine.org/releases/latest/
+RESULT {"title":"Godot Engine Web Editor (4.7.2.stable.official)","url":"https://editor.godotengine.org/releases/latest/","frames":0,"secs":30.2365,"long50":0,"worstMs":0,"errors":[],"coi":true,"canvases":2} webcontent_mb=47 cpu_pct=0 load_s=31 ua=safari
+## https://www.shadertoy.com/view/Xds3zN
+RESULT {"title":"Just a moment...","url":"https://www.shadertoy.com/view/Xds3zN","frames":0,"secs":30.7371,"long50":0,"worstMs":0,"errors":[],"coi":true,"canvases":0} webcontent_mb=212 cpu_pct=0 load_s=31 ua=safari
+## https://playcanvas.com/project/406049/overview/fly-through-a-castle
+RESULT {"title":"","url":"https://playcanvas.com/project/406049/overview/fly-through-a-castle","frames":4,"secs":30.839,"long50":2,"worstMs":2147,"errors":[],"coi":false,"canvases":0} webcontent_mb=73 cpu_pct=0 load_s=31 ua=safari
+## https://www.apple.com/macbook-pro/
+RESULT {"title":"MacBook Pro - Apple","url":"https://www.apple.com/macbook-pro/","frames":134,"secs":31.033,"long50":8,"worstMs":5719,"errors":[],"coi":false,"canvases":0} webcontent_mb=226 cpu_pct=0 load_s=31 ua=safari
+## https://stripe.com/
+RESULT {"title":"Stripe | Financial Infrastructure to Grow Your Revenue","url":"https://stripe.com/in","frames":3854,"secs":29.962,"long50":4,"worstMs":561,"errors":["Script error.","Script error.","Script error.","Script error.","Script error.","Script error.","Script error.","Script error."],"coi":false,"canvases":2} webcontent_mb=558 cpu_pct=0 load_s=31 ua=safari
+## https://www.nytimes.com/
+RESULT {"title":"The New York Times - Breaking News, US News, World News and Videos","url":"https://www.nytimes.com/","frames":65,"secs":29.85,"long50":18,"worstMs":2611,"errors":[],"coi":false,"canvases":0} webcontent_mb=555 cpu_pct=0 load_s=31 ua=safari
+## https://www.youtube.com/
+RESULT {"title":"YouTube","url":"https://www.youtube.com/","frames":99,"secs":30.18,"long50":9,"worstMs":5018,"errors":[],"coi":false,"canvases":0} webcontent_mb=503 cpu_pct=0 load_s=31 ua=safari

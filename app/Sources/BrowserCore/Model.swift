@@ -41,6 +41,7 @@ public struct BrowserWindow: Sendable, Equatable {
   public var space: SpaceID
   public var selected: TabID?
   public var lastSelected: [SpaceID: TabID] = [:]
+  public var frame: [Double]?                     // x, y, width, height on screen (restored on relaunch); nil = let the app cascade it
   public init(id: WindowID = WindowID(), space: SpaceID, selected: TabID? = nil) { self.id = id; self.space = space; self.selected = selected }
 }
 
@@ -175,7 +176,13 @@ public struct BrowserState: Sendable, Equatable {
     windows[w.id] = w; return w.id
   }
   private func space_(_ id: SpaceID) -> Space? { space(id) }
-  public mutating func closeWindow(_ id: WindowID) { windows[id] = nil }   // tabs are untouched (rule 1)
+  public mutating func closeWindow(_ id: WindowID) { windows[id] = nil }
+  /// Remember where a window is (x, y, w, h). Ignores non-finite or absurd values.
+  public mutating func setWindowFrame(_ id: WindowID, _ f: [Double]?) {
+    guard windows[id] != nil else { return }
+    if let f { guard f.count == 4, f.allSatisfy({ $0.isFinite && abs($0) < 100_000 }), f[2] >= 200, f[3] >= 150 else { return } }
+    windows[id]?.frame = f
+  }   // tabs are untouched (rule 1)
 
   public mutating func select(tab: TabID, in window: WindowID, now: Date = Date()) -> SelectResult {
     guard let t = tabs[tab], windows[window] != nil else { return .notFound }

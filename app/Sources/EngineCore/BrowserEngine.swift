@@ -63,6 +63,10 @@ public final class BrowserEngine {
       }
     }
   }
+  /// Remember a window's position and size (saved with the session; restored on relaunch).
+  public func setWindowFrame(_ id: WindowID, x: Double, y: Double, width: Double, height: Double) {
+    state.setWindowFrame(id, [x, y, width, height]); session.scheduleSave(state)
+  }
   public func switchSpace(window: WindowID, to space: SpaceID) {
     state.switchSpace(window: window, to: space); commit()
     if let t = state.windows[window]?.selected { lifecycle.activate(t) }

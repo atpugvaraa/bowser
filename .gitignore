@@ -6,3 +6,4 @@ spikes/**/.build/
 spikes/**/result-*.json
 spikes/**/.srv.pid
 spikes/**/out.txt
+app/.build-san*/

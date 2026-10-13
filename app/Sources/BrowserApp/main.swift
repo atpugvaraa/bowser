@@ -1,6 +1,7 @@
 import AppKit
 
 // Plain-UI browser shell over BrowserEngine. `--selftest <baseURL>` drives the UI programmatically and exits with a verdict.
+setvbuf(stdout, nil, _IONBF, 0)
 MainActor.assumeIsolated {
   let app = NSApplication.shared
   let delegate = AppDelegate()

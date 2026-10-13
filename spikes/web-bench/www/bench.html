@@ -1,0 +1,58 @@
+<!doctype html><meta charset=utf-8><title>bench</title><body style="margin:0;background:#111;color:#ddd;font:12px monospace"><pre id=o>running…</pre><canvas id=c width=1280 height=720 style="width:640px;height:360px"></canvas><canvas id=c2 width=640 height=360></canvas>
+<script>
+const R = { ua: navigator.userAgent, coi: self.crossOriginIsolated, secure: isSecureContext, cores: navigator.hardwareConcurrency, dpr: devicePixelRatio, mem: navigator.deviceMemory };
+const out = (k, v) => { R[k] = v; document.getElementById('o').textContent = JSON.stringify(R, null, 1); };
+const ms = f => { const t = performance.now(); const r = f(); return [Math.round(performance.now() - t), r]; };
+const bytes = a => new Uint8Array(a);
+// ---- capability detection
+const val = a => { try { return WebAssembly.validate(bytes(a)); } catch (e) { return 'err'; } };
+out('wasm', { available: typeof WebAssembly === 'object',
+  simd: val([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]),
+  threads: val([0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,5,4,1,3,1,1,10,11,1,9,0,65,0,254,16,2,0,26,11]),
+  bulkMemory: val([0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,5,3,1,0,1,10,14,1,12,0,65,0,65,0,65,0,252,10,0,0,11]),
+  exceptions: val([0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,10,8,1,6,0,6,64,25,11,11]),
+  refTypes: val([0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,10,7,1,5,0,208,112,26,11]) });
+out('shared', { SharedArrayBuffer: typeof SharedArrayBuffer, atomicsWait: typeof Atomics === 'object' && typeof Atomics.wait, sharedMemory: (() => { try { new WebAssembly.Memory({initial:1,maximum:2,shared:true}); return true } catch (e) { return String(e).slice(0,60) } })() });
+out('apis', { webgl2: !!document.createElement('canvas').getContext('webgl2'), webgl1: !!document.createElement('canvas').getContext('webgl'), webgpu: !!navigator.gpu, offscreenCanvas: typeof OffscreenCanvas, worker: typeof Worker, audioContext: typeof (window.AudioContext||window.webkitAudioContext), audioWorklet: typeof AudioWorklet, gamepad: typeof navigator.getGamepads, pointerLock: 'requestPointerLock' in document.documentElement, pointerLockEl: 'pointerLockElement' in document, fullscreen: !!(document.fullscreenEnabled || document.webkitFullscreenEnabled), webcodecs: typeof VideoDecoder, mse: typeof MediaSource, bigint: typeof BigInt, indexedDB: typeof indexedDB, mediaDevices: typeof navigator.mediaDevices, keyboardLock: typeof navigator.keyboard, vibrate: typeof navigator.vibrate, wakeLock: typeof navigator.wakeLock, gamepadEvent: 'GamepadEvent' in window, performanceNow: performance.now() % 1 !== 0 });
+(async () => { try { out('storage', await navigator.storage.estimate()); } catch (e) { out('storage', 'n/a'); } })();
+// ---- WebGL2 info
+(() => { const gl = document.getElementById('c').getContext('webgl2'); if (!gl) return;
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  out('gl', { renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE), maxDraw: gl.getParameter(gl.MAX_DRAW_BUFFERS), exts: gl.getSupportedExtensions().length,
+    floatRT: !!gl.getExtension('EXT_color_buffer_float'), halfFloat: !!gl.getExtension('EXT_color_buffer_half_float'), aniso: !!gl.getExtension('EXT_texture_filter_anisotropic'), s3tc: !!gl.getExtension('WEBGL_compressed_texture_s3tc'), astc: !!gl.getExtension('WEBGL_compressed_texture_astc'), instanced: true, timer: !!gl.getExtension('EXT_disjoint_timer_query_webgl2'), multiview: !!gl.getExtension('OVR_multiview2') }); })();
+// ---- CPU benchmarks
+function fib(n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }
+const bench = {};
+bench.js_fib32_ms = ms(() => fib(32))[0];
+bench.js_sort1M_ms = ms(() => { const a = new Float64Array(1e6); for (let i = 0; i < a.length; i++) a[i] = Math.sin(i) * 1e6; a.sort(); return a[0]; })[0];
+bench.js_json_ms = ms(() => { const o = Array.from({length: 40000}, (_, i) => ({id: i, name: 'n' + i, tags: ['a','b','c'], v: i * 1.5})); const s = JSON.stringify(o); return JSON.parse(s).length + s.length; })[0];
+bench.js_regex_ms = ms(() => { let c = 0; const re = /(\w+)@(\w+)\.com/g; const text = ('user' + 'x'.repeat(30) + '@example.com ').repeat(20000); for (const m of text.matchAll(re)) c++; return c; })[0];
+bench.js_typedarray_ms = ms(() => { const a = new Float32Array(4e6); let s = 0; for (let k = 0; k < 8; k++) for (let i = 0; i < a.length; i++) { a[i] = a[i] * 0.5 + i; s += a[i]; } return s; })[0];
+try { const inst = new WebAssembly.Instance(new WebAssembly.Module(bytes([0,97,115,109,1,0,0,0,1,6,1,96,1,127,1,127,3,2,1,0,7,7,1,3,102,105,98,0,0,10,30,1,28,0,32,0,65,2,72,4,127,32,0,5,32,0,65,1,107,16,0,32,0,65,2,107,16,0,106,11,11]))); bench.wasm_fib32_ms = ms(() => inst.exports.fib(32))[0]; bench.wasm_fib_ok = inst.exports.fib(20) === 6765; } catch (e) { bench.wasm_error = String(e).slice(0, 100); }
+out('bench', bench);
+// ---- big WASM memory (Godot/Unity ask for hundreds of MB..GBs)
+(() => { const m = new WebAssembly.Memory({initial: 1, maximum: 65536}); const steps = []; let ok = 0;
+  for (let mb = 256; mb <= 4096; mb += 256) { try { const need = mb * 16 - m.buffer.byteLength / 65536; m.grow(need); ok = mb; } catch (e) { steps.push('fail@' + mb + 'MB'); break; } }
+  out('wasmMemoryMaxGrowMB', ok); })();
+// ---- audio
+(async () => { try { const A = window.AudioContext || window.webkitAudioContext; const c = new A(); out('audio', { state: c.state, sampleRate: c.sampleRate, baseLatencyMs: Math.round(c.baseLatency * 1000), outputLatencyMs: Math.round((c.outputLatency||0) * 1000), worklet: !!c.audioWorklet }); c.close(); } catch (e) { out('audio', 'err ' + e); } })();
+// ---- rendering: WebGL2 heavy shader + Canvas2D, measured over real frames
+function frames(seconds, draw) { return new Promise(res => { let n = 0, worst = 0, last = performance.now(); const t0 = last; (function f(t) { const now = performance.now(); worst = Math.max(worst, now - last); last = now; n++; draw(n); if (now - t0 < seconds * 1000) requestAnimationFrame(f); else res({ fps: Math.round(n / ((now - t0) / 1000)), worstFrameMs: Math.round(worst) }); })(); }); }
+(async () => {
+  const c = document.getElementById('c'); const gl = c.getContext('webgl2'); if (gl) {
+    const vs = '#version 300 es\nin vec2 p; void main(){ gl_Position = vec4(p, 0, 1); }';
+    const fs = '#version 300 es\nprecision highp float; uniform float t; out vec4 o; void main(){ vec2 u = gl_FragCoord.xy / 640.0; float a = 0.0; for (int i = 0; i < 160; i++) { a += sin(u.x * float(i) + t) * cos(u.y * float(i) - t); } o = vec4(0.5 + 0.5 * sin(a), 0.5 + 0.5 * cos(a), 0.3, 1.0); }';
+    const sh = (ty, src) => { const s = gl.createShader(ty); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(pr); gl.useProgram(pr);
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0); const tu = gl.getUniformLocation(pr, 't');
+    out('glHeavy', await frames(4, n => { gl.uniform1f(tu, n * 0.02); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.finish(); }));
+    out('glLinkOk', gl.getProgramParameter(pr, gl.LINK_STATUS));
+  }
+  const g = document.getElementById('c2').getContext('2d');
+  out('canvas2d', await frames(3, n => { g.clearRect(0, 0, 640, 360); for (let i = 0; i < 3000; i++) { g.fillStyle = 'hsl(' + ((i * 7 + n) % 360) + ',70%,50%)'; g.beginPath(); g.arc((i * 37 + n * 3) % 640, (i * 19) % 360, 6, 0, 6.3); g.fill(); } }));
+  out('done', true);
+  fetch('/result?name=' + encodeURIComponent((location.hash || '#x').slice(1)), { method: 'POST', body: JSON.stringify(R, null, 1) }).catch(() => {});
+  document.title = 'bench done';
+})();
+</script>

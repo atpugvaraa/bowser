@@ -1096,5 +1096,32 @@ do {
   let mp = tmpDB(); let (ms, _, _) = try SessionManager.start(path: mp); try ms.save(BrowserState()); _ = try ms.rotateBackup()
   check(mode(mp) & 0o077 == 0 && mode(mp + ".backup-0") & 0o077 == 0, "files: database and backup are private (0600) — created that way, not chmod'ed afterwards")
 }
+// 33. Window frames persist
+do {
+  var fs = BrowserState(); let sp = fs.addSpace(name: "W", profile: ProfileID()); let wid = fs.openWindow(space: sp)!
+  fs.setWindowFrame(wid, [100, 200, 1000, 700]); check(fs.windows[wid]?.frame == [100, 200, 1000, 700], "frame: stored on the window")
+  fs.setWindowFrame(wid, [Double.nan, 0, 800, 600]); fs.setWindowFrame(wid, [0, 0, 10, 10]); fs.setWindowFrame(wid, [1e9, 0, 800, 600]); fs.setWindowFrame(wid, [1, 2, 3])
+  check(fs.windows[wid]?.frame == [100, 200, 1000, 700], "frame: NaN, tiny, absurd or malformed frames are ignored")
+  let fp2 = tmpDB(); let fst = try Store(path: fp2); _ = try fst.load(); try fst.save(fs)
+  check(try Store(path: fp2).load() == fs, "frame: survives a save/load round trip exactly")
+  var nf = fs; nf.setWindowFrame(wid, nil); check(nf.windows[wid]?.frame == nil, "frame: can be cleared")
+  // migration v4 -> v5 keeps windows, frame defaults to nil
+  let mp4 = tmpDB(); var h4: OpaquePointer?; sqlite3_open(mp4, &h4)
+  let spid = UUID().uuidString, wnid = UUID().uuidString
+  sqlite3_exec(h4, """
+  CREATE TABLE space(id TEXT PRIMARY KEY, name TEXT NOT NULL, profile TEXT NOT NULL, ord INTEGER NOT NULL);
+  CREATE TABLE tab(id TEXT PRIMARY KEY, space TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE, url TEXT NOT NULL, title TEXT NOT NULL, pinned INTEGER NOT NULL, last_active REAL NOT NULL, ord INTEGER NOT NULL);
+  CREATE TABLE window(id TEXT PRIMARY KEY, space TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE, selected TEXT, ord INTEGER NOT NULL);
+  CREATE TABLE window_last(window TEXT NOT NULL REFERENCES window(id) ON DELETE CASCADE, space TEXT NOT NULL, tab TEXT NOT NULL, PRIMARY KEY(window, space));
+  CREATE TABLE setting(key TEXT PRIMARY KEY, value BLOB NOT NULL);
+  CREATE TABLE archive(id TEXT PRIMARY KEY, space TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, pinned INTEGER NOT NULL, closed_at REAL NOT NULL, idx INTEGER NOT NULL, ord INTEGER NOT NULL, profile TEXT, last_active REAL);
+  CREATE TABLE tab_state(tab TEXT PRIMARY KEY, state BLOB NOT NULL, updated REAL NOT NULL);
+  CREATE TABLE history(profile TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visits INTEGER NOT NULL, last_visited REAL NOT NULL, url_l TEXT NOT NULL, title_l TEXT NOT NULL, PRIMARY KEY(profile, url));
+  CREATE TABLE bookmark(id TEXT PRIMARY KEY, profile TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, added REAL NOT NULL, ord INTEGER NOT NULL);
+  INSERT INTO space VALUES('\(spid)','Old','\(UUID().uuidString)',0); INSERT INTO window VALUES('\(wnid)','\(spid)',NULL,0);
+  PRAGMA user_version=4;
+  """, nil, nil, nil); sqlite3_close(h4)
+  let m5 = try Store(path: mp4).load(); check(m5.windows.count == 1 && m5.windows.values.first?.frame == nil && m5.spaces.count == 1, "migration v4 -> v5 keeps windows (frame unknown = nil)")
+}
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

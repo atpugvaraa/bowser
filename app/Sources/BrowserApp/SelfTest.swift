@@ -2,6 +2,7 @@ import AppKit
 import BrowserCore
 import EngineCore
 import EngineWebKit
+import Resources
 import Lifecycle
 import Foundation
 
@@ -160,6 +161,10 @@ struct SelfTest {
     check(await wait(10) { !app.factory.blockingActive }, "blocking: disabling deactivates it")
     app.settingsController.testApply(["defaultGrace": "300", "maxLiveNormal": "77", "audibleGrace": "25"])       // custom values again, so the relaunch check below is meaningful
 
+    // 9c. window position/size is remembered and comes back after a relaunch
+    c1.window.setFrame(NSRect(x: 120, y: 160, width: 900, height: 640), display: false); c1.windowDidMove(Notification(name: NSWindow.didMoveNotification)); try? await Task.sleep(nanoseconds: 900_000_000)
+    check(e.state.windows[c1.id]?.frame == [120, 160, 900, 640], "window frame: the new position and size are remembered (\(String(describing: e.state.windows[c1.id]?.frame)))")
+
     // 10. save + relaunch from the database: the WHOLE session must match
     do { try e.shutdown() } catch { check(false, "shutdown saved cleanly: \(error)") }
     do {
@@ -170,7 +175,32 @@ struct SelfTest {
       check(EngineSettings.loadUsage(from: m2).gaps == e.lifecycle.usage.gaps && !e.lifecycle.usage.gaps.isEmpty, "relaunch: learned usage habits survive (\(e.lifecycle.usage.gaps.count) hosts)")
     } catch { check(false, "relaunch threw \(error)") }
 
+    // 11. leak cycles: the app's own memory must not grow when tabs/windows/palette/settings are opened and closed over and over
+    if getenv("SELFTEST_CYCLES") != nil || getenv("SELFTEST_HOLD") != nil {
+      let cycles = Int(String(cString: getenv("SELFTEST_CYCLES") ?? strdup("150"))) ?? 150
+      func hostMB() -> Double { Double(ProcessMemory.selfFootprint) / 1_048_576 }
+      let space1 = e.state.spaces[0].id
+      for warm in 0..<10 { c1.newTab(); c1.addressField.stringValue = "\(base)/a.html"; c1.submitAddress(); await settle(); c1.closeSelectedTab(); _ = warm }   // warm-up (caches, lazy init)
+      try? await Task.sleep(nanoseconds: 1_500_000_000)
+      let m0 = hostMB()
+      for i in 0..<cycles {
+        c1.newTab(); c1.addressField.stringValue = "\(base)/\(i % 2 == 0 ? "a" : "b").html"; c1.submitAddress()
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        if i % 5 == 0 { app.quickOpen.show(for: c1); app.quickOpen.setQuery("page"); app.quickOpen.close() }
+        if i % 10 == 0 { _ = choose("Settings…"); app.settingsController.window.orderOut(nil) }
+        if i % 15 == 0 { c1.newWindow(); try? await Task.sleep(nanoseconds: 100_000_000); if let w2 = app.controllers.values.first(where: { $0 !== c1 }) { w2.window.performClose(nil) } }
+        c1.closeSelectedTab()
+        if i % 20 == 19, let a = e.state.archive.first { e.purge(a.id) }                  // keep the archive bounded: purge is the explicit delete
+      }
+      for a in e.state.archive.map(\.id) { e.purge(a) }
+      try? await Task.sleep(nanoseconds: 3_000_000_000)
+      let m1 = hostMB(); let growth = m1 - m0
+      print(String(format: "     (host memory %.0f → %.0f MB over %d cycles)", m0, m1, cycles))
+      check(growth < 60, "leak cycles: the app's memory is stable over \(cycles) tab/window/palette/settings cycles (+\(Int(growth)) MB)")
+      _ = space1
+    }
     print(failures.isEmpty ? "SELFTEST PASS" : "SELFTEST FAIL (\(failures.count))")
+    if getenv("SELFTEST_HOLD") != nil { print("HOLDING for leaks inspection (pid \(getpid()))"); return }      // stay alive so `leaks` can inspect the live process
     exit(failures.isEmpty ? 0 : 1)
   }
 }

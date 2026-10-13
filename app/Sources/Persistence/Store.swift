@@ -18,7 +18,7 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 /// Safety contract: an existing database must be `load()`ed successfully (or `quarantineAndReset()` after a failed load)
 /// before `save()` is allowed, so a read failure can never be followed by an empty save that wipes the user's sessions.
 public final class Store: @unchecked Sendable {
-  public static let schemaVersion = 4
+  public static let schemaVersion = 5
   private var db: OpaquePointer?
   private let lock = NSLock()
   private let path: String
@@ -95,6 +95,7 @@ public final class Store: @unchecked Sendable {
         CREATE TABLE bookmark(id TEXT PRIMARY KEY, profile TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, added REAL NOT NULL, ord INTEGER NOT NULL);
         """)
       }
+      if v < 5 { try execLocked("ALTER TABLE window ADD COLUMN frame TEXT") }     // v5: window position/size
       if v < Store.schemaVersion { try execLocked("PRAGMA user_version = \(Store.schemaVersion)") }
     }
     return wasFresh
@@ -115,7 +116,7 @@ public final class Store: @unchecked Sendable {
         }
       }
       for (i, w) in s.windows.values.sorted(by: { $0.id.raw.uuidString < $1.id.raw.uuidString }).enumerated() {
-        try run("INSERT INTO window(id,space,selected,ord) VALUES(?,?,?,?)", [.text(w.id.raw.uuidString), .text(w.space.raw.uuidString), w.selected.map { .text($0.raw.uuidString) } ?? .null, .int(i)])
+        try run("INSERT INTO window(id,space,selected,ord,frame) VALUES(?,?,?,?,?)", [.text(w.id.raw.uuidString), .text(w.space.raw.uuidString), w.selected.map { .text($0.raw.uuidString) } ?? .null, .int(i), w.frame.map { .text($0.map { String($0) }.joined(separator: ",")) } ?? .null])
         for (sp, tab) in w.lastSelected { try run("INSERT INTO window_last(window,space,tab) VALUES(?,?,?)", [.text(w.id.raw.uuidString), .text(sp.raw.uuidString), .text(tab.raw.uuidString)]) }
       }
       for (i, a) in s.archive.enumerated() {
@@ -148,11 +149,13 @@ public final class Store: @unchecked Sendable {
         order[sid, default: []].append(tid)
       } catch { err = error }
     }
-    try queryLocked("SELECT id,space,selected FROM window ORDER BY ord") { st in
+    try queryLocked("SELECT id,space,selected,frame FROM window ORDER BY ord") { st in
       if err != nil { return }
       do {
         let sel: TabID? = sqlite3_column_type(st, 2) == SQLITE_NULL ? nil : TabID(try uuid(col(st, 2)))
-        windows.append(BrowserWindow(id: WindowID(try uuid(col(st, 0))), space: SpaceID(try uuid(col(st, 1))), selected: sel))
+        var win = BrowserWindow(id: WindowID(try uuid(col(st, 0))), space: SpaceID(try uuid(col(st, 1))), selected: sel)
+        if sqlite3_column_type(st, 3) != SQLITE_NULL { let parts = col(st, 3).split(separator: ",").compactMap { Double($0) }; if parts.count == 4 { win.frame = parts } }
+        windows.append(win)
       } catch { err = error }
     }
     try queryLocked("SELECT window,space,tab FROM window_last") { st in

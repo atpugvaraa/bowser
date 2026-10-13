@@ -36,10 +36,20 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   }
 
   func show() {
-    window.center(); let n = max(app.controllers.count - 1, 0); window.setFrameTopLeftPoint(NSPoint(x: 80 + 28 * n, y: 760 - 28 * n))
+    if let f = engine.state.windows[id]?.frame, f.count == 4, frameIsOnScreen(NSRect(x: f[0], y: f[1], width: f[2], height: f[3])) {
+      window.setFrame(NSRect(x: f[0], y: f[1], width: f[2], height: f[3]), display: false)            // where you left it
+    } else { window.center(); let n = max(app.controllers.count - 1, 0); window.setFrameTopLeftPoint(NSPoint(x: 80 + 28 * n, y: 760 - 28 * n)) }
     app.noteKey(id)                                  // the newest window is the fallback action target when no window is key
     if app.isSelfTest { window.orderFrontRegardless() } else { window.makeKeyAndOrderFront(nil) }       // the unattended self-test must not steal focus
   }
+  /// A saved frame is only used if a useful part of it is still on a connected screen (monitor unplugged, resolution changed...).
+  private func frameIsOnScreen(_ r: NSRect) -> Bool {
+    NSScreen.screens.contains { s in let i = s.visibleFrame.intersection(r); return i.width >= 200 && i.height >= 120 }
+  }
+  private func saveFrame() { let f = window.frame; engine.setWindowFrame(id, x: Double(f.origin.x), y: Double(f.origin.y), width: Double(f.width), height: Double(f.height)) }
+  func windowDidMove(_ n: Notification) { NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(saveFrameDebounced), object: nil); perform(#selector(saveFrameDebounced), with: nil, afterDelay: 0.5) }
+  func windowDidResize(_ n: Notification) { windowDidMove(n) }
+  @objc private func saveFrameDebounced() { if !closingFromEngine { saveFrame() } }
   func closeFromEngine() { if !closingFromEngine { closingFromEngine = true; window.close() } }
 
   // MARK: UI construction
