@@ -16,3 +16,9 @@ Tests (all local, no network):
 - `PolicySim` — hibernation policy simulator (`swift run PolicySim 14 1`).
 
 Known limits (see docs/LEARNINGS.md): no camera/microphone yet (needs signing + usage strings), no extensions UI yet, no passkeys yet (needs Xcode + entitlement), Netflix 4K unverified (plan), plain styling.
+
+
+## Long-running measurement scripts (run when the Mac is idle)
+- `sudo scripts/power-gpu.sh 60` — CPU/GPU power (mW) and GPU busy %, this browser vs Safari vs Chrome on idle / 30k-fish WebGL / three.js. Needs sudo for powermetrics.
+- `scripts/soak.sh 8 500 100` — 8 h, 500 tabs, live budget 100; minute-by-minute swap / WebContent / GPU memory CSV in docs/results. `scripts/soak.sh --safari 8 500` is the Safari baseline (only browser running).
+- `scripts/leaks-check.sh 480` — live `leaks` + open/close cycle memory slope. `scripts/realsites.sh 40` — real heavy sites.
