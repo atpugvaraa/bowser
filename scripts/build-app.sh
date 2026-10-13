@@ -22,7 +22,7 @@ ID=$(security find-identity -v -p codesigning 2>/dev/null | grep -E '"(Apple Dev
 PROF="$R/scripts/signing/embedded.provisionprofile"; ENT="$R/scripts/signing/Browser.entitlements"
 [[ -f "$PROF" ]] && { cp "$PROF" "$A/Contents/embedded.provisionprofile"; ENT="$R/scripts/signing/Browser-passkeys.entitlements"; }
 if [[ -n "$ID" ]]; then
-  codesign --force --options runtime --entitlements "$ENT" -s "$ID" "$A" 2>&1 | tail -2 && echo "signed as: $ID" >&2
+  codesign --force --options runtime --entitlements "$ENT" -s "$ID" "$A" >&2 && echo "signed as: $ID" >&2
 else
   codesign --force --options runtime --entitlements "$ENT" -s - "$A" >/dev/null 2>&1; echo "ad-hoc signed (hardened runtime + camera/mic entitlements; macOS will re-ask permission after every rebuild) ; no identity in the keychain: see docs/SIGNING.md)" >&2
 fi

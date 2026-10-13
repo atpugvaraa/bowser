@@ -21,15 +21,17 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   private var pinnedHeightConstraint: NSLayoutConstraint?
   private var pinnedItems: [PinnedItem] = []
   private let table = ArcTableView()
-  private let sidebar = SidebarView()
+  private let sidebar = AppKitSidebarContainerView()
   private let sidebarToggleBtn = NSButton()
   private let favoritesTray = FavoritesTrayView()
+  private var favoritesHeightConstraint: NSLayoutConstraint?
   private let spacesDock = SpacesDockView()
   let commandBarOverlay = CommandBarOverlayView()
   private let divider = SidebarDividerView()
   private let newTabButton = NewTabHoverButton()
   private let backButton = NSButton(), forwardButton = NSButton(), reloadButton = NSButton()
   let addressField = NSTextField()
+  private lazy var omniboxView = SidebarOmniboxView(addressField: addressField)
   var extButton: NSButton { spacesDock.extButton }
   private let progress = NSProgressIndicator()
   private let content = NSView()
@@ -93,14 +95,24 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     func style(_ b: NSButton, _ symbol: String, _ action: Selector, _ tip: String) {
       b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip); b.isBordered = false; b.imagePosition = .imageOnly; b.contentTintColor = .secondaryLabelColor
       b.target = self; b.action = action; b.toolTip = tip; b.translatesAutoresizingMaskIntoConstraints = false
+      b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+      b.widthAnchor.constraint(equalToConstant: 28).isActive = true; b.heightAnchor.constraint(equalToConstant: 28).isActive = true
     }
     style(sidebarToggleBtn, "sidebar.left", #selector(toggleSidebarClicked), "Toggle Sidebar")
     style(backButton, "chevron.left", #selector(backClicked), "Back"); style(forwardButton, "chevron.right", #selector(forwardClicked), "Forward"); style(reloadButton, "arrow.clockwise", #selector(reloadClicked), "Reload")
-    let nav = NSStackView(views: [sidebarToggleBtn, NSView(), backButton, forwardButton, reloadButton]); nav.orientation = .horizontal; nav.spacing = 8; nav.translatesAutoresizingMaskIntoConstraints = false
+    let nav = NSStackView(views: [backButton, forwardButton, reloadButton]); nav.orientation = .horizontal; nav.spacing = 2; nav.alignment = .centerY; nav.translatesAutoresizingMaskIntoConstraints = false
     addressField.placeholderString = "Search or enter website"; addressField.bezelStyle = .roundedBezel; addressField.delegate = self; addressField.font = .systemFont(ofSize: 13)
     addressField.lineBreakMode = .byTruncatingTail; addressField.translatesAutoresizingMaskIntoConstraints = false; addressField.focusRingType = .none
+    omniboxView.translatesAutoresizingMaskIntoConstraints = false
+    omniboxView.onActivateLauncher = { [weak self] in self?.showCommandBar() }
+    omniboxView.onCopyAddress = { [weak self] in self?.copyCurrentAddress() }
     favoritesTray.translatesAutoresizingMaskIntoConstraints = false
-    favoritesTray.onDismiss = { [weak self] in self?.favoritesTray.isHidden = true }
+    favoritesTray.onDismiss = { [weak self] in
+      self?.favoritesTray.isHidden = true
+      self?.favoritesHeightConstraint?.constant = 0
+    }
+    favoritesTray.menuForFavorite = { [weak self] tid in self?.favoriteMenu(tid) }
+    favoritesTray.onSelectFavorite = { [weak self] tid in self?.selectTab(tid) }
     spacePopup.target = self; spacePopup.action = #selector(spaceChanged(_:)); spacePopup.translatesAutoresizingMaskIntoConstraints = false; spacePopup.isBordered = false; spacePopup.font = .systemFont(ofSize: 12, weight: .semibold)
     divider.translatesAutoresizingMaskIntoConstraints = false
     newTabButton.translatesAutoresizingMaskIntoConstraints = false
@@ -123,11 +135,12 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     let menu = NSMenu(); menu.delegate = self; table.menu = menu
     let scroll = NSScrollView(); scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.drawsBackground = false; scroll.translatesAutoresizingMaskIntoConstraints = false; scroll.scrollerStyle = .overlay
 
-    [nav, addressField, favoritesTray, spacePopup, pinnedScroll, divider, newTabButton, scroll, spacesDock].forEach { sidebar.addSubview($0) }
+    [nav, omniboxView, favoritesTray, spacePopup, pinnedScroll, divider, newTabButton, scroll, spacesDock].forEach { sidebar.addSubview($0) }
 
     sidebar.setAccessibilityIdentifier("ArcSidebar")
     sidebarToggleBtn.setAccessibilityIdentifier("ArcSidebarToggle")
     addressField.setAccessibilityIdentifier("ArcAddressField")
+    omniboxView.setAccessibilityIdentifier("ArcOmnibox")
     favoritesTray.setAccessibilityIdentifier("ArcFavoritesTray")
     spacePopup.setAccessibilityIdentifier("ArcSpacePopup")
     newTabButton.setAccessibilityIdentifier("ArcNewTabButton")
@@ -146,6 +159,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
 
     root.addSubview(sidebar)
     root.addSubview(main)
+    root.addSubview(sidebarToggleBtn)                  // outside the sidebar so it stays when the sidebar hides
     root.addSubview(commandBarOverlay)
 
     let lead = sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor)
@@ -157,6 +171,10 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     pHeight.isActive = true
     self.pinnedHeightConstraint = pHeight
 
+    let fHeight = favoritesTray.heightAnchor.constraint(equalToConstant: 48)
+    fHeight.isActive = true
+    self.favoritesHeightConstraint = fHeight
+
     let pad: CGFloat = 8
     NSLayoutConstraint.activate([
       lead,
@@ -164,19 +182,20 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
       sidebar.topAnchor.constraint(equalTo: root.topAnchor),
       sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
 
-      nav.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 38),
-      nav.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 70),
-      nav.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
+      // one line with the traffic lights (their centre is ~16pt down): toggle sits beside them outside the sidebar, back/forward/reload at the sidebar's right edge
+      nav.centerYAnchor.constraint(equalTo: sidebar.topAnchor, constant: 16),
+      nav.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
+      sidebarToggleBtn.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 80),
+      sidebarToggleBtn.centerYAnchor.constraint(equalTo: root.topAnchor, constant: 16),
 
-      addressField.topAnchor.constraint(equalTo: nav.bottomAnchor, constant: 10),
-      addressField.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
-      addressField.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
-      addressField.heightAnchor.constraint(equalToConstant: 30),
+      omniboxView.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 42),
+      omniboxView.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
+      omniboxView.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
+      omniboxView.heightAnchor.constraint(equalToConstant: 34),
 
-      favoritesTray.topAnchor.constraint(equalTo: addressField.bottomAnchor, constant: 8),
+      favoritesTray.topAnchor.constraint(equalTo: omniboxView.bottomAnchor, constant: 8),
       favoritesTray.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
       favoritesTray.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
-      favoritesTray.heightAnchor.constraint(equalToConstant: 48),
 
       spacePopup.topAnchor.constraint(equalTo: favoritesTray.bottomAnchor, constant: 8),
       spacePopup.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 8),
@@ -283,8 +302,29 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
       let t = engine.state.tabs[$0]
       return t?.pinned == true && t?.folderId == nil
     }
-    for tid in standalonePinned {
-      newPinned.append(.tab(tid, inFolder: false))
+
+    // Ora 3-column favorites grid
+    let favTiles: [FavoriteTileData] = standalonePinned.prefix(6).map { tid in
+      let t = engine.state.tabs[tid]
+      let isSel = (w.selected == tid)
+      return FavoriteTileData(id: tid, title: title(for: tid), url: t?.url ?? "", isSelected: isSel, isPlayingAudio: false)
+    }
+    var favIcons: [TabID: NSImage?] = [:]
+    for tid in standalonePinned.prefix(6) {
+      let host = engine.state.tabs[tid].flatMap { URL(string: $0.url)?.host } ?? ""
+      favIcons[tid] = app.favicons.image(for: host)
+    }
+    favoritesTray.reloadFavorites(tiles: favTiles, icons: favIcons)
+    if !favTiles.isEmpty { favoritesTray.isHidden = false }     // a dismissed empty tray must come back when something is pinned, or those tabs would be in no list
+    if !favoritesTray.isHidden {
+      let rowsCount = (favTiles.count + 2) / 3
+      favoritesHeightConstraint?.constant = favTiles.isEmpty ? 48 : CGFloat(min(rowsCount, 2) * 44 + max(0, min(rowsCount, 2) - 1) * 8)
+    }
+
+    if standalonePinned.count > 6 {
+      for tid in standalonePinned.dropFirst(6) {
+        newPinned.append(.tab(tid, inFolder: false))
+      }
     }
     pinnedItems = newPinned
 
@@ -322,9 +362,11 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     let t = w.selected.flatMap { engine.tab($0) }
     window.title = w.selected.map(title(for:)) ?? "Browser"
     window.subtitle = sp.name
-    if !isEditingAddress { addressField.stringValue = displayURL(w.selected) }
+    let liveURL = displayURL(w.selected)
+    if !isEditingAddress { addressField.stringValue = liveURL }
     backButton.isEnabled = t?.canGoBack ?? false; forwardButton.isEnabled = t?.canGoForward ?? false
     let loading = t?.isLoadingPage ?? false
+    omniboxView.updateStatus(url: liveURL, isLoading: loading)
     reloadButton.image = NSImage(systemSymbolName: loading ? "xmark" : "arrow.clockwise", accessibilityDescription: loading ? "Stop" : "Reload")
     reloadButton.toolTip = loading ? "Stop" : "Reload"
     progress.isHidden = !loading; progress.doubleValue = t?.progress ?? 0
@@ -335,7 +377,18 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     let live = engine.tab(id)?.currentURL?.absoluteString ?? r.url
     return live == "about:blank" ? "" : live
   }
-  private var isEditingAddress: Bool { window.firstResponder === addressField.currentEditor() && addressField.currentEditor() != nil }
+  private var isEditingAddress: Bool {
+    guard let editor = addressField.currentEditor() else { return false }
+    return window.firstResponder === editor
+  }
+  private func copyCurrentAddress() {
+    guard let sel = selected, let r = engine.state.tabs[sel] else { return }
+    let live = engine.tab(sel)?.currentURL?.absoluteString ?? r.url
+    guard live != "about:blank", !live.isEmpty else { return }
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setString(live, forType: .string)
+  }
 
   /// Show the selected tab's web view in the content area (the engine keeps visible tabs live).
   private func attachSelected() {
@@ -397,9 +450,15 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
       selectTab(rows[table.selectedRow])
     }
   }
-  @objc private func closeRowClicked(_ b: NSButton) { if b.tag < rows.count { closeTab(rows[b.tag]) } }
+  @objc private func closeRowClicked(_ b: NSButton) {
+    let row = table.row(for: b)
+    let idx = (row >= 0 && row < rows.count) ? row : b.tag
+    if idx >= 0 && idx < rows.count { closeTab(rows[idx]) }
+  }
   @objc private func closePinnedRowClicked(_ b: NSButton) {
-    if b.tag < pinnedItems.count, case .tab(let tid, _) = pinnedItems[b.tag] {
+    let row = pinnedTable.row(for: b)
+    let idx = (row >= 0 && row < pinnedItems.count) ? row : b.tag
+    if idx >= 0 && idx < pinnedItems.count, case .tab(let tid, _) = pinnedItems[idx] {
       closeTab(tid)
     }
   }
@@ -443,10 +502,15 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     commandBarOverlay.commandBar.setInitialItems(items)
     commandBarOverlay.commandBar.textField.stringValue = ""
     commandBarOverlay.alphaValue = 0
+    commandBarOverlay.barTop.constant = 136
     commandBarOverlay.isHidden = false
-    NSAnimationContext.runAnimationGroup { ctx in
-      ctx.duration = 0.15
+    commandBarOverlay.layoutSubtreeIfNeeded()
+    NSAnimationContext.runAnimationGroup { ctx in            // fade in while settling up into place
+      ctx.duration = 0.18
+      ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+      ctx.allowsImplicitAnimation = true
       commandBarOverlay.animator().alphaValue = 1
+      commandBarOverlay.barTop.animator().constant = 120
     }
     window.makeFirstResponder(commandBarOverlay.commandBar.textField)
   }
@@ -691,6 +755,14 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   }
 
   // MARK: context menu
+  /// Favorites tiles used to be rows in the pinned table, which had these actions; keep them reachable by right-click.
+  private func favoriteMenu(_ tid: TabID) -> NSMenu {
+    let m = NSMenu()
+    for (t, a) in [("Unpin Tab", #selector(ctxUnpin(_:))), ("Copy Address", #selector(ctxCopy(_:))), ("Close Tab", #selector(ctxClose(_:)))] {
+      let i = NSMenuItem(title: t, action: a, keyEquivalent: ""); i.target = self; i.representedObject = tid; m.addItem(i)
+    }
+    return m
+  }
   func menuNeedsUpdate(_ menu: NSMenu) {
     menu.removeAllItems()
     func item(_ t: String, _ a: Selector, _ obj: Any?) -> NSMenuItem { let i = NSMenuItem(title: t, action: a, keyEquivalent: ""); i.target = self; i.representedObject = obj; return i }

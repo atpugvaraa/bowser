@@ -8,3 +8,5 @@ spikes/**/.srv.pid
 spikes/**/out.txt
 app/.build-san*/
 dist/
+.agents/
+skills-lock.json

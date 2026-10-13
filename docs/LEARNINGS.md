@@ -142,3 +142,7 @@ Clean run, every row valid with page-reported fps. This browser == Safari on pow
 - `WKProcessPool` is deprecated (no effect since macOS 12): no manual process warm-up.
 - Overwriting an app binary macOS has already run gets it SIGKILLed; each release build goes to a fresh `dist/Browser-<time>.app`.
 - Owner verified phone-QR passkeys work with a real iPhone.
+
+## Sidebar invisible (tint painted over it)
+`TintView` sits above the sidebar in z-order and filled the raw dirty rect, which spilled over the sidebar: it showed bare space tint but still took clicks. Fix: fill `r.intersection(bounds)`. Diagnose layout/paint bugs without screen-recording permission by rendering views with `bitmapImageRepForCachingDisplay` and hiding suspects one at a time.
+A dismissed favorites tray must be un-hidden when tabs are pinned, otherwise those tabs appear in no list.

@@ -150,8 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
   @objc func newTab(_ s: Any?) {
     if let c = keyController {
-      c.newTab()
-      if !isSelfTest { c.showCommandBar() }
+      if isSelfTest { c.newTab() } else { c.showCommandBar() }     // Arc: ⌘T only opens the bar; a tab is made when you pick something
     }
     else if let sp = engine.state.spaces.first, let w = engine.openWindow(space: sp.id) {
       _ = engine.newTab(in: sp.id, url: "about:blank", window: w)
