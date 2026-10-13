@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   var engine: BrowserEngine!
   var session: SessionManager!
   var factory: WebKitTabFactory!
+  var extensions: ExtensionsUI!
   var controllers: [WindowID: BrowserWindowController] = [:]
   private var recentWindows: [WindowID] = []       // most recently key/shown first
   private var finishedDownloads = 0
@@ -55,6 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     session = s; recovery = rec
     factory = WebKitTabFactory(persistent: !isSelfTest)
     factory.startPowerWatch()
+    let host = ExtensionHost(registry: dir.appendingPathComponent("extensions.json")); host.persistent = !isSelfTest; host.allowPrivate = isSelfTest
+    factory.extensionHost = host
+    extensions = ExtensionsUI(app: self, host: host, root: dir.appendingPathComponent("extensions"))
     factory.externalOpenHandler = { NSWorkspace.shared.open($0) }
     blocking = EngineSettings.loadBlocking(from: session)
     do { try await factory.prepareContentBlocking(blocking, storeURL: dir.appendingPathComponent("rulelists")) }
@@ -91,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
     for (id, c) in controllers where engine.state.windows[id] == nil { controllers[id] = nil; c.closeFromEngine() }
     controllers.values.forEach { $0.refresh() }
+    extensions?.sync()
   }
   func controller(for window: NSWindow?) -> BrowserWindowController? { controllers.values.first { $0.window === window } }
   /// The window an action applies to: key window, else main window, else the last one that was key (never an arbitrary one).
@@ -169,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
       for b in list.prefix(60) { let i = NSMenuItem(title: b.title.isEmpty ? b.url : String(b.title.prefix(60)), action: #selector(openBookmarkItem(_:)), keyEquivalent: ""); i.target = self; i.representedObject = b.url; i.toolTip = b.url; i.tag = 900; menu.addItem(i) }
       return
     }
+    if menu.title == "Extensions" { extensions?.build(menu); return }
     guard menu.title == "Spaces" else { return }
     menu.removeAllItems()
     for (i, sp) in engine.state.spaces.enumerated() {

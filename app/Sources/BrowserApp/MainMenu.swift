@@ -68,6 +68,7 @@ enum MainMenu {
       add(m, "Bookmark This Page", #selector(AppDelegate.bookmarkPage(_:)), "d")       // static: a key equivalent must exist before the menu is ever opened
       m.addItem(.separator())
     }
+    submenu("Extensions") { m in m.delegate = target; m.addItem(withTitle: "Install Extension…", action: nil, keyEquivalent: "") }
     submenu("Spaces") { m in m.delegate = target; m.addItem(withTitle: "(none)", action: nil, keyEquivalent: "") }
     submenu("Window") { m in
       add(m, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: nil)

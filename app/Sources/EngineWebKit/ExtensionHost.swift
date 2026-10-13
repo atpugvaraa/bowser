@@ -1,5 +1,6 @@
 import BrowserCore
 import Extensions
+import AppKit
 import Foundation
 import WebKit
 
@@ -111,7 +112,20 @@ public final class ExtensionHost: NSObject, WKWebExtensionControllerDelegate {
   fileprivate func adapter(_ t: WebKitTab) -> TabAdapter { if let a = tabAdapters[t.id] { return a }; let a = TabAdapter(t, host: self); tabAdapters[t.id] = a; return a }
   fileprivate func windowAdapter(_ id: WindowID) -> WindowAdapter { if let a = windowAdapters[id] { return a }; let a = WindowAdapter(id, host: self); windowAdapters[id] = a; return a }
 
+  // MARK: toolbar actions
+  /// The UI shows the popover it is handed. Set by the app.
+  public var presentPopup: ((NSPopover) -> Void)?
+  /// Clicks an extension's toolbar button for a tab (opens its popup, or fires its `action.onClicked`).
+  public func performAction(_ id: String, tab: WebKitTab?, profile: ProfileID) {
+    guard let ctx = contexts[id]?[profile] else { return }
+    ctx.performAction(for: tab.map { adapter($0) })
+  }
+  public func hasContext(_ id: String, profile: ProfileID) -> Bool { contexts[id]?[profile] != nil }
+
   // MARK: WKWebExtensionControllerDelegate
+  public func webExtensionController(_ c: WKWebExtensionController, presentActionPopup action: WKWebExtension.Action, for ctx: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+    if let p = action.popupPopover { presentPopup?(p); completionHandler(nil) } else { completionHandler(NSError(domain: "ExtensionHost", code: 2)) }
+  }
   public func webExtensionController(_ c: WKWebExtensionController, openWindowsFor ctx: WKWebExtensionContext) -> [any WKWebExtensionWindow] { (environment?.windowIDs() ?? []).map { windowAdapter($0) } }
   public func webExtensionController(_ c: WKWebExtensionController, focusedWindowFor ctx: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { environment?.focusedWindow().map { windowAdapter($0) } }
   public func webExtensionController(_ c: WKWebExtensionController, openNewTabUsing options: WKWebExtension.TabConfiguration, for ctx: WKWebExtensionContext, completionHandler: @escaping ((any WKWebExtensionTab)?, (any Error)?) -> Void) {

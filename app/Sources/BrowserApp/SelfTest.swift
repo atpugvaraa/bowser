@@ -4,6 +4,7 @@ import EngineCore
 import EngineWebKit
 import Resources
 import Lifecycle
+import Extensions
 import Foundation
 
 /// Drives the real UI programmatically and exits with a verdict. Run through scripts/ui-selftest.sh (serves local pages).
@@ -199,6 +200,25 @@ struct SelfTest {
       print(String(format: "     (host memory %.0f → %.0f MB over %d cycles)", m0, m1, cycles))
       check(growth < 150, "leak cycles: the app's memory is stable over \(cycles) tab/window/palette/settings cycles (+\(Int(growth)) MB)")
       _ = space1
+    }
+    // 12. extensions through the real app: install (no prompt in tests), menu lists it, content script runs in a real tab, toggle off stops it
+    do {
+      let d = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("st-ext-\(UUID().uuidString)", isDirectory: true)
+      try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+      try? #"{"manifest_version":3,"name":"SelfTestExt","version":"1","description":"t","host_permissions":["*://127.0.0.1/*"],"content_scripts":[{"matches":["*://127.0.0.1/*"],"js":["cs.js"],"run_at":"document_idle"}]}"#.write(to: d.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+      try? "document.documentElement.setAttribute('data-st', 'ran');".write(to: d.appendingPathComponent("cs.js"), atomically: true, encoding: .utf8)
+      if let p = try? ExtensionPackage.prepare(source: d, into: app.extensions.root) {
+        await app.extensions.host.install(p, permissions: [], hosts: ["*://127.0.0.1/*"]); try? await Task.sleep(nanoseconds: 1_500_000_000)
+        let m = NSMenu(title: "Extensions"); app.extensions.build(m)
+        check(m.items.contains { $0.title.hasPrefix("SelfTestExt") }, "extensions: the Extensions menu lists the installed extension")
+        c1.newTab(); c1.addressField.stringValue = "\(base)/a.html"; c1.submitAddress()
+        var ran = false
+        for _ in 0..<20 { try? await Task.sleep(nanoseconds: 500_000_000); if let w = (c1.selected.flatMap { e.tab($0) } as? WebKitTab)?.webView, ((try? await w.evaluateJavaScript("document.documentElement.getAttribute('data-st')")) as? String) == "ran" { ran = true; break } }
+        check(ran, "extensions: a granted content script runs in a real tab")
+        c1.closeSelectedTab()
+        app.extensions.host.uninstall(p.id)
+        check(app.extensions.host.records.isEmpty, "extensions: uninstall forgets the registration")
+      } else { check(false, "extensions: self-test package could not be prepared") }
     }
     print(failures.isEmpty ? "SELFTEST PASS" : "SELFTEST FAIL (\(failures.count))")
     if getenv("SELFTEST_HOLD") != nil { print("HOLDING for leaks inspection (pid \(getpid()))"); return }      // stay alive so `leaks` can inspect the live process

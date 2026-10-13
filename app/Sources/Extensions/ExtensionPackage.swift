@@ -8,7 +8,7 @@ public enum ExtensionPackage {
   public enum PackageError: Error, Equatable {
     case notFound, badCRX(String), unsafeEntry(String), unzipFailed(Int32), noManifest, badManifest(String), tooLarge(String)
   }
-  public struct Prepared: Equatable {
+  public struct Prepared: Equatable, Sendable {
     public var id: String
     public var name: String
     public var version: String

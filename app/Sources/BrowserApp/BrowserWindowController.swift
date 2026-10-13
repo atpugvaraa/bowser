@@ -14,6 +14,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   private let table = NSTableView()
   private let backButton = NSButton(), forwardButton = NSButton(), reloadButton = NSButton()
   let addressField = NSTextField()
+  let extButton = NSButton()
   private let progress = NSProgressIndicator()
   private let content = NSView()
   private var rows: [TabID] = []
@@ -76,7 +77,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
     addressField.lineBreakMode = .byTruncatingTail; addressField.translatesAutoresizingMaskIntoConstraints = false
     progress.style = .bar; progress.isIndeterminate = false; progress.minValue = 0; progress.maxValue = 1; progress.controlSize = .small; progress.isHidden = true; progress.translatesAutoresizingMaskIntoConstraints = false
     let bar = NSView(); bar.translatesAutoresizingMaskIntoConstraints = false
-    [backButton, forwardButton, reloadButton, addressField].forEach { bar.addSubview($0) }
+    style(extButton, "puzzlepiece.extension", #selector(extensionsClicked), "Extensions")
+    [backButton, forwardButton, reloadButton, addressField, extButton].forEach { bar.addSubview($0) }
     content.translatesAutoresizingMaskIntoConstraints = false; content.wantsLayer = true
     let main = NSView(); main.translatesAutoresizingMaskIntoConstraints = false
     [bar, progress, content].forEach { main.addSubview($0) }
@@ -95,7 +97,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
       backButton.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 10), backButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
       forwardButton.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 4), forwardButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
       reloadButton.leadingAnchor.constraint(equalTo: forwardButton.trailingAnchor, constant: 4), reloadButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-      addressField.leadingAnchor.constraint(equalTo: reloadButton.trailingAnchor, constant: 10), addressField.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -12), addressField.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+      addressField.leadingAnchor.constraint(equalTo: reloadButton.trailingAnchor, constant: 10), addressField.trailingAnchor.constraint(equalTo: extButton.leadingAnchor, constant: -8), extButton.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10), extButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor), addressField.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
       progress.topAnchor.constraint(equalTo: bar.bottomAnchor), progress.leadingAnchor.constraint(equalTo: main.leadingAnchor), progress.trailingAnchor.constraint(equalTo: main.trailingAnchor), progress.heightAnchor.constraint(equalToConstant: 3),
       content.topAnchor.constraint(equalTo: progress.bottomAnchor), content.leadingAnchor.constraint(equalTo: main.leadingAnchor), content.trailingAnchor.constraint(equalTo: main.trailingAnchor), content.bottomAnchor.constraint(equalTo: main.bottomAnchor),
     ])
@@ -220,6 +222,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSTableViewData
   func stop() { if let s = selected { (engine.tab(s))?.stopLoading() } }
   func back() { if let s = selected { (engine.tab(s))?.goBack() } }
   func forward() { if let s = selected { (engine.tab(s))?.goForward() } }
+  @objc private func extensionsClicked() { app.extensions?.showMenu(from: extButton) }
   @objc private func backClicked() { back() }
   @objc private func forwardClicked() { forward() }
   @objc private func reloadClicked() { if selected.flatMap({ engine.tab($0)?.isLoadingPage }) == true { stop() } else { reload() } }
