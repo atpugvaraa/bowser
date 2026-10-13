@@ -30,3 +30,10 @@ A restore costs ~110 ms (p50), 122 ms p95, 165 ms p99 (real WebKit, 500-tab run)
 
 ## Bugs the harnesses found in my own code (all fixed)
 dirty-form script never installed; restore verified URL only (not history); crash test looked for pid too early; stale binary after failed build (twice); churn ignored protections; budget floor refused to shed recent tabs at ANY pressure; signals() could hang forever; iframe input missed; NUL bytes truncated in SQLite; crash test could pass vacuously; test server matched `/sse.html` as the stream.
+
+## Update 2026-10-13 07:2x — real-WebKit scale run that completed (300 tabs, quiet-ish Mac)
+Raw: `docs/results/engine-scale-20261013-072300.md`. 300 mixed pages (light/article/SPA/heavy/canvas/chatty/audio), live budget 60, 300 heavy-tailed activations, relaxed preset, pressure normal throughout, 0 warnings.
+- Built 300 tabs in 13 s -> 60 live / 240 hibernated; WebContent **3251 MB** (~54 MB per live tab on this page mix); ESTIMATE all 300 live: ~16 GB on an 18 GB Mac (not run).
+- Resume latency of misses: p50 **109 ms**, p95 119 ms, p99 124 ms (n=164); live-hit 45% (budget 60 of 300, heavy-tailed picks, 12 simulated hours).
+- Policy evaluation at 300 tabs: 0.5 ms median. Store save 2 ms / load 1 ms; 6 audio tabs never hibernated (0 hibernations); after churn 30 live / 1239 MB.
+- Still NOT done: 500-tab / 8 h soak vs Safari. Caveats: synthetic pages; shared Mac; single run.
