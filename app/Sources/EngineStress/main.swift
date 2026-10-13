@@ -419,7 +419,7 @@ Task { @MainActor in
   do {
     let hub = LoopbackHub(), ble = SimulatedBLE(), auth = SoftwareAuthenticator()
     let phone = SimulatedPhone(authenticator: auth, hub: hub, ble: ble)
-    let factory = WebKitTabFactory(persistent: false)
+    let factory = WebKitTabFactory(persistent: false); factory.passkeys.requireUserActivation = false      // the harness cannot produce a real click
     nonisolated(unsafe) var seenOrigins: [String] = []
     factory.passkeys.performer = { kind, rp, origin, ctap in
       seenOrigins.append(origin + "|" + rp)
@@ -428,30 +428,47 @@ Task { @MainActor in
     }
     let t = factory.makeTab(id: TabID(), url: nil, profile: ProfileID(), restoredState: nil) as! WebKitTab
     let w = t.ensureLive()
-    let win = NSWindow(contentRect: .init(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false); win.isReleasedWhenClosed = false; win.contentView = w; win.orderFrontRegardless()
+    let win = NSWindow(contentRect: .init(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false); win.isReleasedWhenClosed = false; win.contentView = w; NSApp.activate(ignoringOtherApps: true); win.makeKeyAndOrderFront(nil)
     let port = URL(string: baseURL!)!.port!
     w.load(URLRequest(url: URL(string: "http://localhost:\(port)/exttest.html")!))
     _ = await waitUntil(20) { w.isLoading == false && w.url != nil }; try? await Task.sleep(nanoseconds: 800_000_000)
     let js = """
     const out = {};
+    try {
     out.secure = isSecureContext; out.hasPKC = typeof PublicKeyCredential;
     out.uvpaa = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    const gap = () => new Promise(r => setTimeout(r, 3300));
     const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
     const c = await navigator.credentials.create({ publicKey: { challenge: new Uint8Array(32).fill(1), rp: { name: 'T' }, user: { id: new Uint8Array([1, 2]), name: 'kd', displayName: 'KD' }, pubKeyCredParams: [{ type: 'public-key', alg: -7 }], authenticatorSelection: { residentKey: 'required' } } });
     out.created = { type: c.type, inst: c instanceof PublicKeyCredential, transports: c.response.getTransports(), alg: c.response.getPublicKeyAlgorithm(), pk: c.response.getPublicKey().byteLength, idMatchesRaw: c.id.length > 20 };
     const cd = JSON.parse(new TextDecoder().decode(c.response.clientDataJSON)); out.cd = cd;
+    await gap();
     const g = await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32).fill(2), userVerification: 'preferred' } });
     out.got = { same: g.id === c.id, sig: g.response.signature.byteLength > 60, uh: new Uint8Array(g.response.userHandle).join(','), type: g.type };
     const ad = g.response.authenticatorData; const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('localhost'));
     out.rpHashOK = hex(ad.slice(0, 32)) === hex(h);
     out.json = typeof g.toJSON().response.signature;
+    await gap();
     try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32), rpId: 'example.com' } }); out.badRp = 'ALLOWED'; } catch (e) { out.badRp = e.name; }
+    await gap();
     try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32).fill(5), allowCredentials: [{ type: 'public-key', id: new Uint8Array([9, 9, 9]) }] } }); out.noCred = 'ALLOWED'; } catch (e) { out.noCred = e.name; }
+    // hostile inputs straight at the native handler
+    const hnd = window.webkit.messageHandlers.bpasskey; const hostile = [];
+    for (const msg of [{ op: 'get', options: { challenge: 5 } }, { op: 'get', options: { challenge: 'AAAAAAAAAAAAAAAAAAAAAA', allow: [{ id: '***' }] } }, { op: 'create', options: { challenge: 'AAAAAAAAAAAAAAAAAAAAAA', user: {} } }, { op: 'get', options: { challenge: 'AAAAAAAAAAAAAAAAAAAAAA', allow: Array(500).fill({ id: 'AAAA' }) } }, { op: 7 }, 'string', null, { op: 'get' }]) {
+      try { await hnd.postMessage(msg); hostile.push('ALLOWED'); } catch (e) { hostile.push('rejected'); }
+    }
+    out.hostile = hostile.join(',');
+    // a sub-frame may not use passkeys, nor cancel the top page's request
+    const fr = document.createElement('iframe'); fr.src = 'about:blank'; document.body.appendChild(fr); await new Promise(r => setTimeout(r, 300));
+    try { await fr.contentWindow.navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32).fill(7) } }); out.frame = 'ALLOWED'; } catch (e) { out.frame = e.name; }
+    await new Promise(r => setTimeout(r, 3200));
+    await gap();
     const ac = new AbortController(); ac.abort();
     try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32) }, signal: ac.signal }); out.abort = 'ALLOWED'; } catch (e) { out.abort = e.name; }
+    } catch (e) { out.error = e.name + ': ' + e.message; }
     return JSON.stringify(out);
     """
-    let res = try? await w.callAsyncJavaScript(js, arguments: [:], in: nil, contentWorld: .page)
+    var res: Any?; do { res = try await w.callAsyncJavaScript(js, arguments: [:], in: nil, contentWorld: .page) } catch { log("- passkey page script error: \(error)") }
     let m = ((res as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) }) as? [String: Any] ?? [:]
     log("- passkeys through a real page: \(m)  origins seen by native: \(seenOrigins)")
     let created = m["created"] as? [String: Any] ?? [:], got = m["got"] as? [String: Any] ?? [:], cd = m["cd"] as? [String: Any] ?? [:]

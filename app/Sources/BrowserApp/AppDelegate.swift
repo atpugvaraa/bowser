@@ -66,7 +66,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
       guard let self else { throw CancellationError() }
       return try await self.passkeyUI.perform(kind: kind, rpId: rp, origin: origin, ctap: ctap)
     }
-    factory.passkeys.cancelCurrent = { [weak self] in self?.passkeyUI.cancel() }
     var captureAllowed = Set<String>()                      // this session only; there is no UI to revoke a permanent grant yet
     factory.captureHandler = { host, cam, mic in
       let what = cam && mic ? "camera and microphone" : cam ? "camera" : "microphone"

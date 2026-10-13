@@ -1390,7 +1390,7 @@ do {
   let mc = Passkey.makeCredentialRequest(rpId: "example.com", rpName: "Example", userId: Data([9, 9]), userName: "kd", displayName: "KD", clientDataHash: Data(SHA256.hash(data: cdjC)), algs: [-7], exclude: [], residentKey: "required", userVerification: "preferred")
   do {
     let resp = try await run(client(), flow: "mc", mc)
-    let r = try Passkey.creationResult(ctapResponse: resp, clientDataJSON: cdjC)
+    let r = try Passkey.creationResult(ctapResponse: resp, clientDataJSON: cdjC, rpId: "example.com")
     let att = try CBOR.decode(Passkey.fromB64url(r["attestationObject"] as! String)!)
     let ad = att["authData"]!.data!
     check(box.qr.hasPrefix("FIDO:/") && hub.connections.first?.host == "cable.auth.com" && hub.connections.first?.path.hasPrefix("/cable/connect/") == true, "hybrid e2e: QR shown, phone advert found, tunnel opened on the advertised domain")
@@ -1401,11 +1401,14 @@ do {
     // sign in
     let cdjG = Passkey.clientDataJSON(type: "webauthn.get", challenge: Data(repeating: 4, count: 32), origin: origin)
     let ga = Passkey.getAssertionRequest(rpId: "example.com", clientDataHash: Data(SHA256.hash(data: cdjG)), allow: [], userVerification: "preferred")
-    let gr = try Passkey.assertionResult(ctapResponse: try await run(client(), flow: "ga", ga), clientDataJSON: cdjG)
+    let gr = try Passkey.assertionResult(ctapResponse: try await run(client(), flow: "ga", ga), clientDataJSON: cdjG, rpId: "example.com")
     let sig = try P256.Signing.ECDSASignature(derRepresentation: Passkey.fromB64url(gr["signature"] as! String)!)
     let gad = Passkey.fromB64url(gr["authenticatorData"] as! String)!
     check(pub.isValidSignature(sig, for: gad + Data(SHA256.hash(data: cdjG))), "hybrid e2e: the assertion signature verifies with the public key from creation")
     check(Passkey.fromB64url(gr["id"] as! String) == credId && Passkey.fromB64url(gr["userHandle"] as! String) == Data([9, 9]) && gad[36] == 1, "hybrid e2e: same credential id, user handle returned, sign count advanced")
+    // a phone answering for another site is refused, and attestation is always normalised to none
+    do { _ = try Passkey.assertionResult(ctapResponse: try await run(client(), flow: "ga", ga), clientDataJSON: cdjG, rpId: "other.com"); check(false, "passkey: wrong-site answer must be refused") } catch { check((error as? Passkey.PasskeyError) != nil, "passkey: an answer whose rpIdHash is for another site is refused") }
+    check((att["attStmt"] == CBOR.map([])) && att["fmt"]?.string == "none", "passkey: attestation is always passed on as 'none'")
     // allowList that does not contain it
     let ga2 = Passkey.getAssertionRequest(rpId: "example.com", clientDataHash: Data(repeating: 1, count: 32), allow: [Passkey.Descriptor(id: Data([1, 2, 3]))], userVerification: "preferred")
     do { _ = try await run(client(), flow: "ga", ga2); check(false, "hybrid e2e: unknown credential must fail") } catch { check((error as? HybridError) == .authenticatorStatus(0x2E), "hybrid e2e: a credential the phone does not have gives NO_CREDENTIALS") }

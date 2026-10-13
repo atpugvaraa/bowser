@@ -19,14 +19,16 @@ Legend: **implemented** = built and covered by an automated check; **partial** =
 | History, bookmarks, ⌘K quick open | implemented | unit + UI tests |
 | Content blocking | implemented (opt-in) | native rule lists; video sites exempt; conservative list only |
 | Video (Netflix 1080p, YouTube 4K HDR) | implemented | measured; Netflix 4K **unverified** (plan), Prime/F1 TV not tested |
-| Extensions (Grammarly, uBO, password managers) | **not implemented** | MV3 content scripts + DNR proven in spikes; uBO Lite didn't block (unknown cause); needs host UI + logins |
-| Passkeys / Apple Passwords | **blocked** | needs Xcode license (user), signing, the `web-browser.public-key-credential` entitlement |
-| Camera / microphone (calls) | **blocked** | needs signing + usage descriptions (enabling without them can hang/terminate the app) |
+| Extensions (Chrome + Firefox) | implemented (host), matrix partial | install from file/.crx/.xpi/.zip/folder or store link (CRX3 signature / sha256 verified); explicit permission prompt; blocklist; per-profile; real-WebKit test of MV3 + MV2. uBO Lite blocks (CNN: 16/16 ad URLs). Not yet run: Grammarly (needs login), toolbar popups. WebKit lacks `userScripts`/`offscreen`; Apple's Passwords extension cannot run (macOS launch constraint on its helper). |
+| Passkeys | **partial: phone (QR) passkeys built** | FIDO hybrid client (QR + Bluetooth + Apple/Google tunnel) with iCloud-Keychain passkeys on the iPhone; protocol + page bridge verified against a *simulated* phone only: real-iPhone run still needed. Mac-local Touch ID passkeys / system passkey sheet need Apple's entitlement (paid account + approval). |
+| Apple Passwords app autofill | **blocked** | Apple's helper refuses non-approved browsers (Launch Constraint Violation); not bypassed (security rule) |
+| Camera / microphone (calls) | implemented, untested with a real call | enabled only when the process has the entitlements + usage strings (ad-hoc build has them); per-site Allow prompt; test with a meeting site |
 | Handoff, iCloud sync | not implemented | needs Xcode + Apple Developer account |
 | Boosts, reader mode, notes, split view | not implemented | later modules |
 | Draft saver (form input across crash) | not implemented | design noted |
 | Private browsing | not implemented | |
 | Safari baseline comparison | **blocked** | see scale |
-| Signed/notarised build | not needed (personal use) | ad-hoc signed |
+| Signed build | partial | hardened runtime + entitlements, ad-hoc; real certificate needs the owner's Apple ID in Xcode (docs/SIGNING.md) |
+| Adaptive frame rate (LTPO-style) | implemented | rAF governor, power-aware; measured 120 fps/15% CPU -> 45 fps/9% idle on the shader page |
 
 Self-checks: ~400 (policy, model, store, recovery, settings, ranking, dialogs) + UI self-test + real-WebKit stress. Everything runs through `scripts/gate.sh` on every commit.

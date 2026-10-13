@@ -14,6 +14,7 @@ final class PasskeyUI: NSObject {
   init(app: AppDelegate) { self.app = app; super.init() }
 
   func perform(kind: String, rpId: String, origin: String, ctap: Data) async throws -> Data {
+    try Task.checkCancellation()
     let scanner = BLEAdvertSource()
     scanner.onProblem = { [weak self] m in Task { @MainActor in self?.status.stringValue = m } }
     let client = HybridClient(scanner: scanner) { try await WebSocketTunnel.connect($0) }
@@ -31,7 +32,9 @@ final class PasskeyUI: NSObject {
   private func show(kind: String, rpId: String) {
     let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 440), styleMask: [.titled], backing: .buffered, defer: false)
     p.isReleasedWhenClosed = false
-    title.stringValue = kind == "create" ? "Create a passkey for \(rpId)" : "Sign in to \(rpId)"
+    let shown = rpId.count > 60 ? String(rpId.prefix(60)) + "…" : rpId
+    title.stringValue = kind == "create" ? "Create a passkey for \(shown)" : "Sign in to \(shown)"
+    title.lineBreakMode = .byTruncatingMiddle
     title.font = .boldSystemFont(ofSize: 14); title.alignment = .center
     qrView.imageScaling = .scaleProportionallyUpOrDown; qrView.image = nil
     status.stringValue = "Preparing…"; status.alignment = .center; status.font = .systemFont(ofSize: 12)

@@ -22,7 +22,7 @@ public enum Passkey {
     if rp == "localhost" { return true }
     let labels = rp.split(separator: ".")
     guard labels.count >= 2 else { return false }
-    let publicSuffixes: Set<String> = ["co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "co.jp", "co.in", "com.br", "co.nz", "github.io", "herokuapp.com", "vercel.app", "netlify.app", "pages.dev", "web.app", "appspot.com", "cloudfront.net", "blogspot.com"]
+    let publicSuffixes: Set<String> = ["co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "co.jp", "co.in", "com.br", "co.nz", "github.io", "herokuapp.com", "vercel.app", "netlify.app", "pages.dev", "web.app", "appspot.com", "cloudfront.net", "blogspot.com", "workers.dev", "myshopify.com", "azurewebsites.net", "com.cn", "co.za", "com.mx", "co.kr", "com.sg", "github.dev", "netlify.com", "fly.dev", "onrender.com", "repl.co", "glitch.me"]
     return !publicSuffixes.contains(rp)
   }
   public static func originString(scheme: String, host: String, port: Int) -> String? {
@@ -60,19 +60,21 @@ public enum Passkey {
   }
 
   // MARK: CTAP responses -> the dictionaries the page expects (all binary as base64url)
-  public static func assertionResult(ctapResponse: Data, clientDataJSON: Data) throws -> [String: Any] {
+  public static func assertionResult(ctapResponse: Data, clientDataJSON: Data, rpId: String, singleAllowedID: Data? = nil) throws -> [String: Any] {
     guard ctapResponse.first == 0, let m = try? CBOR.decode(ctapResponse.dropFirst()),
-          let credId = m[1]?["id"]?.data, let authData = m[2]?.data, let sig = m[3]?.data else { throw PasskeyError.invalid("assertion response") }
+          let credId = m[1]?["id"]?.data ?? singleAllowedID, let authData = m[2]?.data, let sig = m[3]?.data, authData.count >= 37 else { throw PasskeyError.invalid("assertion response") }
+    guard authData.prefix(32) == Data(SHA256.hash(data: Data(rpId.utf8))) else { throw PasskeyError.notAllowed("SecurityError: the phone answered for a different site") }
     var r: [String: Any] = ["id": b64url(credId), "rawId": b64url(credId), "authenticatorData": b64url(authData), "signature": b64url(sig), "clientDataJSON": b64url(clientDataJSON)]
     if let uid = m[4]?["id"]?.data { r["userHandle"] = b64url(uid) }
     return r
   }
-  public static func creationResult(ctapResponse: Data, clientDataJSON: Data) throws -> [String: Any] {
-    guard ctapResponse.first == 0, let m = try? CBOR.decode(ctapResponse.dropFirst()), let fmt = m[1]?.string, let authData = m[2]?.data, let attStmt = m[3] else { throw PasskeyError.invalid("creation response") }
+  public static func creationResult(ctapResponse: Data, clientDataJSON: Data, rpId: String) throws -> [String: Any] {
+    guard ctapResponse.first == 0, let m = try? CBOR.decode(ctapResponse.dropFirst()), m[1]?.string != nil, let authData = m[2]?.data, m[3] != nil else { throw PasskeyError.invalid("creation response") }
+    guard authData.count >= 37, authData.prefix(32) == Data(SHA256.hash(data: Data(rpId.utf8))) else { throw PasskeyError.notAllowed("SecurityError: the phone answered for a different site") }
     guard authData.count > 55, authData[32] & 0x40 != 0 else { throw PasskeyError.invalid("no credential data in authenticator data") }
     let idLen = Int(authData[53]) << 8 | Int(authData[54]); guard authData.count >= 55 + idLen else { throw PasskeyError.invalid("credential id length") }
     let credId = authData.subdata(in: 55..<(55 + idLen))
-    let attObj = CBOR.map([(.text("fmt"), .text(fmt)), (.text("attStmt"), attStmt), (.text("authData"), .bytes(authData))]).encode()
+    let attObj = CBOR.map([(.text("fmt"), .text("none")), (.text("attStmt"), .map([])), (.text("authData"), .bytes(authData))]).encode()      // no attestation is ever requested, so none is ever passed on
     var r: [String: Any] = ["id": b64url(credId), "rawId": b64url(credId), "attestationObject": b64url(attObj), "authenticatorData": b64url(authData), "clientDataJSON": b64url(clientDataJSON)]
     if let (cose, _) = try? CBOR.decodePrefix(authData.dropFirst(55 + idLen).asData), let x = cose[-2]?.data, let y = cose[-3]?.data, x.count == 32, y.count == 32,
        let key = try? P256.Signing.PublicKey(x963Representation: Data([4]) + x + y) {

@@ -3,7 +3,7 @@
 # (hardened runtime + camera/mic entitlements), else ad-hoc. Passkey entitlement: put Apple's approved profile at scripts/signing/embedded.provisionprofile
 # and the build uses scripts/signing/Browser-passkeys.entitlements. usage: scripts/build-app.sh [--release]
 R="$(cd "$(dirname "$0")/.." && pwd)"
-CFG=Debug; FLAGS=(); [[ "$1" == "--release" ]] && { CFG=Release; FLAGS=(-c release); }
+CFG=Debug; FLAGS=(); [[ "$1" == "--release" ]] && { CFG=Release; FLAGS=(-c release --product BrowserApp); }
 (cd "$R/app" && swift build "${FLAGS[@]}" >"$R/app/.build/app-build.log" 2>&1) || { echo "BUILD FAILED"; grep -E "error" "$R/app/.build/app-build.log" | head -5; exit 1; }
 A="$R/app/.build/BrowserApp/Browser.app"; mkdir -p "$A/Contents/MacOS" "$A/Contents/Resources"
 cp "$R/app/.build/out/Products/$CFG/BrowserApp" "$A/Contents/MacOS/Browser"

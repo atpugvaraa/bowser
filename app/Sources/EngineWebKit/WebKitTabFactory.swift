@@ -64,7 +64,7 @@ public final class WebKitTabFactory: TabFactory {
     for c in configs.values {                                   // future page loads (this also re-adds the shared scripts, which are installed per controller)
       c.userContentController.removeAllUserScripts()
       c.userContentController.addUserScript(WebKitTab.dirtyScript); c.userContentController.addUserScript(WebKitTab.connScript)
-      c.userContentController.addUserScript(PasskeyBridge.script)
+      c.userContentController.addUserScript(PasskeyBridge.script(requireUserActivation: passkeys.requireUserActivation))
       c.userContentController.addUserScript(WKUserScript(source: g.source, injectionTime: .atDocumentStart, forMainFrameOnly: false))
     }
     for t in liveTabs.allObjects { t.webView?.evaluateJavaScript(g.updateJS, completionHandler: nil) }
@@ -90,7 +90,7 @@ public final class WebKitTabFactory: TabFactory {
       WebKitFeatureFlags.set("PreferPageRenderingUpdatesNear60FPSEnabled", false, for: c.preferences)
     }
     if governor.enabled { c.userContentController.addUserScript(WKUserScript(source: governor.source, injectionTime: .atDocumentStart, forMainFrameOnly: false)) }
-    c.userContentController.addUserScript(PasskeyBridge.script)
+    c.userContentController.addUserScript(PasskeyBridge.script(requireUserActivation: passkeys.requireUserActivation))
     c.userContentController.addScriptMessageHandler(passkeys, contentWorld: .page, name: PasskeyBridge.handlerName)
     if let h = extensionHost { c.webExtensionController = h.controller(for: profile, store: c.websiteDataStore) }
     c.preferences.isElementFullscreenEnabled = true              // the player's fullscreen button (YouTube, Netflix, Prime) does nothing without this

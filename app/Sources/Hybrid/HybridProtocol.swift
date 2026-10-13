@@ -15,7 +15,7 @@ public enum Hybrid {
     public let time: Int
     public init(flow: String, identity: P256.KeyAgreement.PrivateKey = .init(), secret: Data? = nil, time: Int = Int(Date().timeIntervalSince1970)) {
       self.flow = flow; self.identity = identity; self.time = time
-      if let s = secret { self.secret = s } else { var b = [UInt8](repeating: 0, count: 16); _ = SecRandomCopyBytes(kSecRandomDefault, 16, &b); self.secret = Data(b) }
+      if let s = secret { self.secret = s } else { var g = SystemRandomNumberGenerator(); self.secret = Data((0..<16).map { _ in UInt8.random(in: 0...255, using: &g) }) }
     }
     public var cbor: CBOR {
       .map([(.int(0), .bytes(identity.publicKey.compressedRepresentation)), (.int(1), .bytes(secret)), (.int(2), .int(Int64(Hybrid.knownDomains))), (.int(3), .int(Int64(time))), (.int(4), .bool(false)), (.int(5), .text(flow))])

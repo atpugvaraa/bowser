@@ -10,25 +10,35 @@ public final class PasskeyBridge: NSObject, WKScriptMessageHandlerWithReply {
   public typealias Performer = @MainActor (_ kind: String, _ rpId: String, _ origin: String, _ ctapRequest: Data) async throws -> Data
   public var performer: Performer?
   /// Called when a page asks to cancel (AbortSignal) so the UI can close.
-  public var cancelCurrent: (@MainActor () -> Void)?
   private var busy = false
+  private var activeTask: Task<Void, Never>?
+  private weak var owner: WKWebView?
+  private var lastEnd = Date.distantPast
+  /// The page script refuses calls without a user gesture (defence in depth; the native checks below do not depend on it).
+  public var requireUserActivation = true
   public static let handlerName = "bpasskey"
 
-  public static var script: WKUserScript { WKUserScript(source: scriptSource, injectionTime: .atDocumentStart, forMainFrameOnly: false) }
+  public static func script(requireUserActivation: Bool = true) -> WKUserScript { WKUserScript(source: scriptSource.replacingOccurrences(of: "__REQUIRE_ACTIVATION__", with: requireUserActivation ? "true" : "false"), injectionTime: .atDocumentStart, forMainFrameOnly: false) }
 
   public func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage, replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
     guard let body = m.body as? [String: Any], let op = body["op"] as? String else { replyHandler(nil, "NotAllowedError: bad request"); return }
-    if op == "cancel" { cancelCurrent?(); replyHandler(nil, nil); return }
+    if op == "cancel" {                                                // only the page that started the request may cancel it
+      if m.frameInfo.isMainFrame, let w = m.webView, w === owner { activeTask?.cancel() }
+      replyHandler(nil, nil); return
+    }
     guard op == "create" || op == "get", let opts = body["options"] as? [String: Any] else { replyHandler(nil, "NotAllowedError: bad request"); return }
     guard m.frameInfo.isMainFrame else { replyHandler(nil, "NotAllowedError: passkeys are only available to the top-level page"); return }
     let so = m.frameInfo.securityOrigin
     guard let origin = Passkey.originString(scheme: so.protocol, host: so.host, port: so.port) else { replyHandler(nil, "SecurityError: passkeys need a secure (https) page"); return }
     guard let performer else { replyHandler(nil, "NotSupportedError: passkeys are not available"); return }
+    guard let web = m.webView, let win = web.window, win.isKeyWindow, !web.isHiddenOrHasHiddenAncestor else { replyHandler(nil, "NotAllowedError: the page is not in front"); return }
     guard !busy else { replyHandler(nil, "NotAllowedError: another passkey request is in progress"); return }
+    guard Date().timeIntervalSince(lastEnd) > 3 else { replyHandler(nil, "NotAllowedError: please wait a moment before asking again"); return }
+    busy = true; owner = web                                           // set now, not inside the task: two quick messages cannot both pass
     let host = so.host.lowercased()
-    Task { @MainActor in
-      self.busy = true; defer { self.busy = false }
-      do { replyHandler(try await self.handle(op, opts, origin: origin, host: host, performer: performer), nil) }
+    activeTask = Task { @MainActor in
+      defer { self.busy = false; self.owner = nil; self.activeTask = nil; self.lastEnd = Date() }
+      do { try Task.checkCancellation(); replyHandler(try await self.handle(op, opts, origin: origin, host: host, performer: performer), nil) }
       catch { replyHandler(nil, Self.domError(error)) }
     }
   }
@@ -41,15 +51,17 @@ public final class PasskeyBridge: NSObject, WKScriptMessageHandlerWithReply {
     let rpId = ((create ? str("id", rpDict) : str("rpId")) ?? host).lowercased()
     guard Passkey.rpIdAllowed(rpId: rpId, originHost: host) else { throw Passkey.PasskeyError.notAllowed("SecurityError: this site may not use that relying-party id") }
     let uv = str("userVerification") ?? "preferred"
-    func descriptors(_ k: String) -> [Passkey.Descriptor] {
+    func descriptors(_ k: String) throws -> [Passkey.Descriptor] {
       let list: [[String: Any]] = (o[k] as? [[String: Any]]) ?? []
+      guard list.count <= 64 else { throw Passkey.PasskeyError.invalid(k) }
       var out: [Passkey.Descriptor] = []
-      for d in list.prefix(64) { if let s = d["id"] as? String, let data = Passkey.fromB64url(s) { out.append(Passkey.Descriptor(id: data)) } }
+      for d in list { guard let s = d["id"] as? String, let data = Passkey.fromB64url(s), (1...1023).contains(data.count) else { throw Passkey.PasskeyError.invalid(k) }; out.append(Passkey.Descriptor(id: data)) }   // a bad entry must not silently widen the request
       return out
     }
     let cdj = Passkey.clientDataJSON(type: create ? "webauthn.create" : "webauthn.get", challenge: challenge, origin: origin)
     let hash = Data(SHA256.hash(data: cdj))
     let ctap: Data
+    var allowList: [Passkey.Descriptor] = []
     if create {
       guard let user = o["user"] as? [String: Any], let uid = str("id", user).flatMap(Passkey.fromB64url), (1...64).contains(uid.count) else { throw Passkey.PasskeyError.invalid("user") }
       let rawAlgs: [Any] = (o["algs"] as? [Any]) ?? []
@@ -59,12 +71,13 @@ public final class PasskeyBridge: NSObject, WKScriptMessageHandlerWithReply {
       let userName = String((str("name", user) ?? "").prefix(200))
       let displayName = String((str("displayName", user) ?? "").prefix(200))
       let residentKey = str("residentKey") ?? "preferred"
-      ctap = Passkey.makeCredentialRequest(rpId: rpId, rpName: rpName, userId: uid, userName: userName, displayName: displayName, clientDataHash: hash, algs: algs, exclude: descriptors("exclude"), residentKey: residentKey, userVerification: uv)
+      ctap = Passkey.makeCredentialRequest(rpId: rpId, rpName: rpName, userId: uid, userName: userName, displayName: displayName, clientDataHash: hash, algs: algs, exclude: try descriptors("exclude"), residentKey: residentKey, userVerification: uv)
     } else {
-      ctap = Passkey.getAssertionRequest(rpId: rpId, clientDataHash: hash, allow: descriptors("allow"), userVerification: uv)
+      allowList = try descriptors("allow")
+      ctap = Passkey.getAssertionRequest(rpId: rpId, clientDataHash: hash, allow: allowList, userVerification: uv)
     }
     let response = try await performer(create ? "create" : "get", rpId, origin, ctap)
-    return create ? try Passkey.creationResult(ctapResponse: response, clientDataJSON: cdj) : try Passkey.assertionResult(ctapResponse: response, clientDataJSON: cdj)
+    return create ? try Passkey.creationResult(ctapResponse: response, clientDataJSON: cdj, rpId: rpId) : try Passkey.assertionResult(ctapResponse: response, clientDataJSON: cdj, rpId: rpId, singleAllowedID: allowList.count == 1 ? allowList[0].id : nil)
   }
 
   static func domError(_ e: Error) -> String {
@@ -73,7 +86,7 @@ public final class PasskeyBridge: NSObject, WKScriptMessageHandlerWithReply {
       switch h {
       case .timeout: return "NotAllowedError: the request timed out"
       case .cancelled: return "AbortError: cancelled"
-      case .authenticatorStatus(let s): return s == 0x2E ? "NotAllowedError: no matching passkey on that phone" : s == 0x27 ? "NotAllowedError: declined on the phone" : "NotAllowedError: the phone refused (\(s))"
+      case .authenticatorStatus(let s): return s == 0x19 ? "InvalidStateError: that phone already has a passkey for this account" : s == 0x2E ? "NotAllowedError: no matching passkey on that phone" : s == 0x27 ? "NotAllowedError: declined on the phone" : "NotAllowedError: the phone refused (\(s))"
       case .bluetoothUnavailable(let m): return "NotAllowedError: \(m)"
       default: return "NotAllowedError: could not reach the phone"
       }
@@ -94,7 +107,7 @@ public final class PasskeyBridge: NSObject, WKScriptMessageHandlerWithReply {
   var PKC = window.PublicKeyCredential || function PublicKeyCredential(){ throw new TypeError('Illegal constructor'); };
   function def(o, k, v){ Object.defineProperty(o, k, { value: v, enumerable: true, configurable: true }); }
   function protoOf(name, fallback){ var C = window[name]; return C && C.prototype ? C.prototype : fallback; }
-  function build(r, create){
+  function build(r, create, wantCP){
     var cred = Object.create(PKC.prototype), resp = Object.create(protoOf(create ? 'AuthenticatorAttestationResponse' : 'AuthenticatorAssertionResponse', Object.prototype));
     def(resp, 'clientDataJSON', unb64u(r.clientDataJSON));
     if (create) {
@@ -108,33 +121,39 @@ public final class PasskeyBridge: NSObject, WKScriptMessageHandlerWithReply {
       def(resp, 'userHandle', r.userHandle ? unb64u(r.userHandle) : null);
     }
     def(cred, 'id', r.id); def(cred, 'rawId', unb64u(r.rawId)); def(cred, 'type', 'public-key'); def(cred, 'authenticatorAttachment', 'cross-platform'); def(cred, 'response', resp);
-    cred.getClientExtensionResults = function(){ return create ? { credProps: { rk: true } } : {}; };
-    cred.toJSON = function(){ var j = { id: r.id, rawId: r.rawId, type: 'public-key', authenticatorAttachment: 'cross-platform', clientExtensionResults: {}, response: { clientDataJSON: r.clientDataJSON } };
+    var ext = (create && wantCP) ? { credProps: { rk: true } } : {};
+    cred.getClientExtensionResults = function(){ return ext; };
+    cred.toJSON = function(){ var j = { id: r.id, rawId: r.rawId, type: 'public-key', authenticatorAttachment: 'cross-platform', clientExtensionResults: ext, response: { clientDataJSON: r.clientDataJSON } };
       if (create) { j.response.attestationObject = r.attestationObject; j.response.authenticatorData = r.authenticatorData; j.response.transports = ['hybrid']; if (r.publicKey) j.response.publicKey = r.publicKey; j.response.publicKeyAlgorithm = r.publicKeyAlgorithm || -7; }
       else { j.response.authenticatorData = r.authenticatorData; j.response.signature = r.signature; if (r.userHandle) j.response.userHandle = r.userHandle; }
       return j; };
     return cred;
   }
   function ids(list){ return (list || []).map(function(c){ return { id: b64u(c.id) }; }); }
-  function run(op, options, signal){
+  function run(op, options, signal, wantsCredProps){
+    if (__REQUIRE_ACTIVATION__ && navigator.userActivation && !navigator.userActivation.isActive) return Promise.reject(new DOMException('A passkey request needs a click or key press', 'NotAllowedError'));
     if (signal && signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
     var done = false;
     return new Promise(function(resolve, reject){
       if (signal) signal.addEventListener('abort', function(){ if (!done) { done = true; try { H().postMessage({ op: 'cancel' }); } catch (e) {} reject(new DOMException('Aborted', 'AbortError')); } });
-      H().postMessage({ op: op, options: options }).then(function(r){ if (!done) { done = true; resolve(build(r, op === 'create')); } }, function(e){ if (!done) { done = true; reject(domErr(e && e.message ? e.message : e)); } });
+      H().postMessage({ op: op, options: options }).then(function(r){ if (!done) { done = true; resolve(build(r, op === 'create', wantsCredProps)); } }, function(e){ if (!done) { done = true; reject(domErr(e && e.message ? e.message : e)); } });
     });
   }
   navigator.credentials.get = function(opts){
     if (!opts || !opts.publicKey) return nativeGet(opts);
+    try {
     var o = opts.publicKey;
     if (opts.mediation === 'conditional') return new Promise(function(_, reject){ if (opts.signal) opts.signal.addEventListener('abort', function(){ reject(new DOMException('Aborted', 'AbortError')); }); });   // no autofill UI yet: stay pending like an idle conditional request
-    return run('get', { challenge: b64u(o.challenge), rpId: o.rpId, userVerification: o.userVerification || 'preferred', allow: ids(o.allowCredentials) }, opts.signal);
+    return run('get', { challenge: b64u(o.challenge), rpId: o.rpId, userVerification: o.userVerification || 'preferred', allow: ids(o.allowCredentials) }, opts.signal, false);
+    } catch (e) { return Promise.reject(e instanceof DOMException ? e : new TypeError(String(e && e.message || e))); }
   };
   navigator.credentials.create = function(opts){
     if (!opts || !opts.publicKey) return nativeCreate(opts);
+    try {
     var o = opts.publicKey, sel = o.authenticatorSelection || {};
     return run('create', { challenge: b64u(o.challenge), rp: { id: o.rp && o.rp.id, name: o.rp && o.rp.name }, user: { id: b64u(o.user.id), name: o.user.name, displayName: o.user.displayName },
-      algs: (o.pubKeyCredParams || []).map(function(p){ return p.alg; }), exclude: ids(o.excludeCredentials), residentKey: sel.residentKey || (sel.requireResidentKey ? 'required' : 'discouraged'), userVerification: sel.userVerification || 'preferred' }, opts.signal);
+      algs: (o.pubKeyCredParams || []).map(function(p){ return p.alg; }), exclude: ids(o.excludeCredentials), residentKey: sel.residentKey || (sel.requireResidentKey ? 'required' : 'discouraged'), userVerification: sel.userVerification || 'preferred' }, opts.signal, !!(o.extensions && o.extensions.credProps));
+    } catch (e) { return Promise.reject(e instanceof DOMException ? e : new TypeError(String(e && e.message || e))); }
   };
   function setStatic(k, v){ try { Object.defineProperty(PKC, k, { value: v, configurable: true, writable: true }); } catch (e) {} }
   setStatic('isUserVerifyingPlatformAuthenticatorAvailable', function(){ return Promise.resolve(false); });

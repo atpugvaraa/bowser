@@ -1,7 +1,7 @@
 @preconcurrency import CoreBluetooth
 import Foundation
 
-/// Listens for FIDO hybrid adverts (service data UUID FFF9) and yields the 20-byte payloads. Created only when a passkey sheet opens, so the
+/// Listens for FIDO hybrid adverts (service data UUID FFF9) and yields the 20-byte payloads. Every other advertisement is discarded unread. Created only when a passkey sheet opens, so the
 /// Bluetooth permission prompt never appears otherwise. Never stores device names or identifiers; stops scanning when the stream ends.
 public final class BLEAdvertSource: NSObject, AdvertSource, CBCentralManagerDelegate, @unchecked Sendable {
   private var central: CBCentralManager?
@@ -19,7 +19,7 @@ public final class BLEAdvertSource: NSObject, AdvertSource, CBCentralManagerDele
   }
   public func centralManagerDidUpdateState(_ c: CBCentralManager) {
     switch c.state {
-    case .poweredOn: c.scanForPeripherals(withServices: [Self.uuid], options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
+    case .poweredOn: c.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])   // hybrid adverts carry service DATA, not a service-UUID list, so a UUID filter could miss them; we look only at FFF9 data below and keep nothing else
     case .unauthorized: onProblem?("Bluetooth access is off for this app. Allow it in System Settings ▸ Privacy & Security ▸ Bluetooth."); continuation?.finish()
     case .poweredOff: onProblem?("Bluetooth is turned off. Turn it on to use your phone."); 
     case .unsupported: onProblem?("This Mac has no Bluetooth LE."); continuation?.finish()
