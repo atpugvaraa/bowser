@@ -44,6 +44,8 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
   /// A page that opened itself (window.open) asked to close itself (window.close()): the engine closes the tab.
   public var onPageRequestedClose: (() -> Void)?
   private var dialogs = DialogThrottle()
+  private var dialogHost: String?                      // the throttle follows the SITE: a page reloading itself cannot reset it
+  fileprivate var pendingDialogs: [UUID: () -> Void] = [:]
   private let configuration: WKWebViewConfiguration
   private var savedState: Data?
 
@@ -128,6 +130,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
     url = w.url ?? url; title = w.title ?? title
     if let st = w.interactionState, let data = try? NSKeyedArchiver.archivedData(withRootObject: st, requiringSecureCoding: false) { savedState = data } else { savedState = nil }   // never keep a stale state over a newer url
     DirtyTracker.shared.forget(w)
+    resolvePendingDialogs()                           // a sheet still open on a view we are destroying: end it, answer the page with defaults
     observers.removeAll(); w.uiDelegate = nil
     w.stopLoading(); w.navigationDelegate = nil
     w.removeFromSuperview()
@@ -176,7 +179,7 @@ public final class WebKitTab: NSObject, WKNavigationDelegate, WKUIDelegate, Engi
   }
 
   // MARK: WKNavigationDelegate
-  public func webView(_ w: WKWebView, didCommit n: WKNavigation!) { dialogs.reset() }
+  public func webView(_ w: WKWebView, didCommit n: WKNavigation!) { let h = w.url?.host; if h != dialogHost { dialogHost = h; dialogs.reset() } }
   public func webView(_ w: WKWebView, didFinish n: WKNavigation!) { url = w.url ?? url; title = w.title ?? title; onChange?() }
   public func webViewWebContentProcessDidTerminate(_ w: WKWebView) {
     crashCount += 1
@@ -299,38 +302,56 @@ extension WebKitTab {
     return nil
   }
 
-  // JavaScript dialogs: shown as sheets/modals naming the site, throttled against dialog spam.
-  private func host(_ f: WKFrameInfo) -> String { f.securityOrigin.host.isEmpty ? "This page" : f.securityOrigin.host }
-  private func present(_ a: NSAlert, in w: WKWebView, host: String, completion: @escaping @MainActor (NSApplication.ModalResponse, Bool) -> Void) {
-    a.messageText = a.messageText.isEmpty ? "\(host) says" : a.messageText
+  // JavaScript dialogs: sheets on the visible window only, throttled, sanitised, answered exactly once.
+  // A tab that is not on screen (background / sleeping) NEVER blocks the UI: its dialog is dismissed with the default answer.
+  private func host(_ f: WKFrameInfo) -> String { DialogText.sanitize(f.securityOrigin.host.isEmpty ? "This page" : f.securityOrigin.host, maxLines: 1, maxChars: 100) }
+  private func canPresent(_ w: WKWebView) -> Bool { guard let win = w.window else { return false }; return win.isVisible && !dialogs.suppressed }
+
+  /// Shows `a` as a sheet; `finish` is called EXACTLY once (user answer, or the default if the tab sleeps/closes meanwhile).
+  private func presentSheet(_ a: NSAlert, in w: WKWebView, defaultAnswer: @escaping @MainActor () -> Void, answer: @escaping @MainActor (NSApplication.ModalResponse, Bool) -> Void) {
+    guard let win = w.window else { defaultAnswer(); return }
     var box: NSButton?
     if dialogs.shouldOfferSuppress() { let b = NSButton(checkboxWithTitle: "Stop this page from showing more dialogs", target: nil, action: nil); a.accessoryView = b; box = b }
     dialogs.recordShown()
-    let finish: (NSApplication.ModalResponse) -> Void = { r in MainActor.assumeIsolated { let sup = box?.state == .on; if sup { self.dialogs.suppress() }; completion(r, sup) } }
-    if let win = w.window, win.isVisible { a.beginSheetModal(for: win, completionHandler: finish) } else { finish(a.runModal()) }
+    let once = Once(); let token = UUID()
+    pendingDialogs[token] = { [weak self, weak win] in                       // the tab is going away: end the sheet, answer with defaults
+      if once.fire() { if let win, let sheet = a.window as NSWindow? { win.endSheet(sheet) }; MainActor.assumeIsolated { defaultAnswer() } }
+      self?.pendingDialogs[token] = nil
+    }
+    a.beginSheetModal(for: win) { [weak self] r in
+      MainActor.assumeIsolated {
+        self?.pendingDialogs[token] = nil
+        guard once.fire() else { return }
+        let sup = box?.state == .on; if sup { self?.dialogs.suppress() }
+        answer(r, sup)
+      }
+    }
   }
+  fileprivate func resolvePendingDialogs() { let all = pendingDialogs.values; pendingDialogs.removeAll(); for r in all { r() } }
+
   public func webView(_ w: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping @MainActor () -> Void) {
-    if dialogs.suppressed { completionHandler(); return }
-    let a = NSAlert(); a.messageText = "\(host(f)) says"; a.informativeText = String(message.prefix(2000)); a.addButton(withTitle: "OK")
-    present(a, in: w, host: host(f)) { _, _ in completionHandler() }
+    guard canPresent(w) else { completionHandler(); return }
+    let a = NSAlert(); a.messageText = "\(host(f)) says"; a.informativeText = DialogText.sanitize(message); a.addButton(withTitle: "OK")
+    presentSheet(a, in: w, defaultAnswer: { completionHandler() }) { _, _ in completionHandler() }
   }
   public func webView(_ w: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping @MainActor (Bool) -> Void) {
-    if dialogs.suppressed { completionHandler(false); return }
-    let a = NSAlert(); a.messageText = "\(host(f)) says"; a.informativeText = String(message.prefix(2000)); a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
-    present(a, in: w, host: host(f)) { r, sup in completionHandler(r == .alertFirstButtonReturn && !sup) }
+    guard canPresent(w) else { completionHandler(false); return }
+    let a = NSAlert(); a.messageText = "\(host(f)) says"; a.informativeText = DialogText.sanitize(message); a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
+    presentSheet(a, in: w, defaultAnswer: { completionHandler(false) }) { r, sup in completionHandler(r == .alertFirstButtonReturn && !sup) }
   }
   public func webView(_ w: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping @MainActor (String?) -> Void) {
-    if dialogs.suppressed { completionHandler(nil); return }
-    let a = NSAlert(); a.messageText = "\(host(f)) says"; a.informativeText = String(prompt.prefix(2000)); a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
-    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24)); field.stringValue = defaultText ?? ""; a.accessoryView = field
-    present(a, in: w, host: host(f)) { r, sup in completionHandler(r == .alertFirstButtonReturn && !sup ? field.stringValue : nil) }
+    guard canPresent(w) else { completionHandler(nil); return }
+    let a = NSAlert(); a.messageText = "\(host(f)) says"; a.informativeText = DialogText.sanitize(prompt); a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
+    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24)); field.stringValue = DialogText.sanitize(defaultText ?? "", maxLines: 1, maxChars: 500); a.accessoryView = field
+    presentSheet(a, in: w, defaultAnswer: { completionHandler(nil) }) { r, sup in completionHandler(r == .alertFirstButtonReturn && !sup ? field.stringValue : nil) }
   }
   // File inputs / uploads
   public func webView(_ w: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping @MainActor ([URL]?) -> Void) {
+    guard let win = w.window, win.isVisible else { completionHandler(nil); return }          // a background tab cannot open file dialogs
     let p = NSOpenPanel(); p.allowsMultipleSelection = parameters.allowsMultipleSelection; p.canChooseDirectories = parameters.allowsDirectories; p.canChooseFiles = true
     p.message = "\(host(f)) wants to upload files"
-    let done: (NSApplication.ModalResponse) -> Void = { r in MainActor.assumeIsolated { completionHandler(r == .OK ? p.urls : nil) } }
-    if let win = w.window, win.isVisible { p.beginSheetModal(for: win, completionHandler: done) } else { done(p.runModal()) }
+    let once = Once()
+    p.beginSheetModal(for: win) { r in MainActor.assumeIsolated { if once.fire() { completionHandler(r == .OK ? p.urls : nil) } } }
   }
   /// window.close() from a script-opened page.
   public func webViewDidClose(_ w: WKWebView) { onPageRequestedClose?() }

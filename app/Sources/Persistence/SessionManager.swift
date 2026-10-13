@@ -110,18 +110,30 @@ public final class SessionManager {
     pendingVisits.append((profile, url, title, at)); if pendingVisits.count > 5000 { pendingVisits.removeFirst(pendingVisits.count - 5000) }
   }
   public func noteTitle(profile: ProfileID, url: String, title: String) { if !title.isEmpty { pendingTitles["\(profile.raw)|\(url)"] = (profile, url, title) } }
-  /// Searching includes visits that are still buffered (flushed first) so what you just visited is findable immediately.
-  public func searchHistory(profile: ProfileID? = nil, query: String, limit: Int = 50) -> [Store.HistoryEntry] {
-    try? flushHistoryOnly(); return (try? store.searchHistory(profile: profile, query: query, limit: limit)) ?? []
+  /// Write-free search (safe on the main thread, never takes the write lock): database rows merged with visits still buffered in memory,
+  /// so what you visited a second ago is findable without forcing a write per keystroke.
+  public func searchHistory(profile: ProfileID? = nil, words: [String], limit: Int = 50) -> [Store.HistoryEntry] {
+    var rows = (try? store.searchHistory(profile: profile, words: words, limit: limit)) ?? []
+    let ws = words.map { Fold.text($0) }.filter { !$0.isEmpty }
+    func latestTitle(_ p: ProfileID, _ url: String, _ fallback: String) -> String { pendingTitles["\(p.raw)|\(url)"]?.2 ?? fallback }
+    for i in rows.indices { rows[i].title = latestTitle(rows[i].profile, rows[i].url, rows[i].title) }          // buffered title updates show immediately
+    for v in pendingVisits where profile == nil || v.profile == profile {
+      let title = latestTitle(v.profile, v.url, v.title)
+      let u = Fold.text(v.url), t = Fold.text(title)
+      guard ws.allSatisfy({ u.contains($0) || t.contains($0) }) else { continue }
+      if let i = rows.firstIndex(where: { $0.url == v.url && $0.profile == v.profile }) { rows[i].visits += 1; rows[i].lastVisited = max(rows[i].lastVisited, v.at); if !title.isEmpty { rows[i].title = title } }
+      else { rows.append(Store.HistoryEntry(profile: v.profile, url: v.url, title: title, visits: 1, lastVisited: v.at)) }
+    }
+    return Array(rows.sorted { $0.lastVisited > $1.lastVisited }.prefix(limit))
   }
-  private func flushHistoryOnly() throws {
-    if !pendingVisits.isEmpty { try store.recordVisits(pendingVisits); pendingVisits.removeAll() }
-    for (k, v) in pendingTitles { try store.updateHistoryTitle(profile: v.0, url: v.1, title: v.2); pendingTitles[k] = nil }
-  }
+  public func searchHistory(profile: ProfileID? = nil, query: String, limit: Int = 50) -> [Store.HistoryEntry] { searchHistory(profile: profile, words: QuickSearch.words(query), limit: limit) }
   public func bookmarks(profile: ProfileID? = nil) -> [Store.Bookmark] { (try? store.bookmarks(profile: profile)) ?? [] }
   @discardableResult public func addBookmark(profile: ProfileID, url: String, title: String) throws -> UUID { try store.addBookmark(profile: profile, url: url, title: title) }
   public func removeBookmark(_ id: UUID) throws { try store.removeBookmark(id) }
-  public func clearHistory(profile: ProfileID? = nil) throws { pendingVisits.removeAll(); pendingTitles.removeAll(); try store.clearHistory(profile: profile) }
+  public func clearHistory(profile: ProfileID? = nil) throws {
+    if let p = profile { pendingVisits.removeAll { $0.profile == p }; pendingTitles = pendingTitles.filter { $0.value.0 != p } } else { pendingVisits.removeAll(); pendingTitles.removeAll() }
+    try store.clearHistory(profile: profile)
+  }
   public func save(_ state: BrowserState) throws { pending?.cancel(); pending = nil; latest = state; try flush() }
 
   // MARK: backups

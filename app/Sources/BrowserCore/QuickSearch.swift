@@ -9,16 +9,25 @@ public struct QuickCandidate: Equatable, Sendable {
   public init(kind: Kind, title: String, url: String, recency: Double = 0, tab: TabID? = nil) { self.kind = kind; self.title = title; self.url = url; self.recency = recency; self.tab = tab }
 }
 public enum QuickSearch {
-  public static func words(_ q: String) -> [String] { q.lowercased().split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) }
+  public static func words(_ q: String) -> [String] { Fold.text(q).split(whereSeparator: { $0.isWhitespace }).map(String.init) }
+  /// True if `w` occurs in `text` at the start of a word (after any non-alphanumeric character).
+  static func startsWord(_ text: String, _ w: String) -> Bool {
+    var from = text.startIndex
+    while let r = text.range(of: w, range: from..<text.endIndex) {
+      if r.lowerBound == text.startIndex || !(text[text.index(before: r.lowerBound)].isLetter || text[text.index(before: r.lowerBound)].isNumber) { return true }
+      from = text.index(after: r.lowerBound)
+    }
+    return false
+  }
   /// nil if some word is missing; else a score (higher = better).
   public static func score(_ c: QuickCandidate, words: [String]) -> Double? {
     guard !words.isEmpty else { return Double(c.recency) }
-    let t = c.title.lowercased(), u = c.url.lowercased()
-    let host = URL(string: c.url)?.host?.lowercased() ?? ""
+    let t = Fold.text(c.title), u = Fold.text(c.url)
+    let host = Fold.text(URL(string: c.url)?.host ?? "")
     var total = 0.0
     for w in words {
       var s = 0.0
-      if t.hasPrefix(w) { s = 6 } else if t.contains(" " + w) { s = 5 } else if t.contains(w) { s = 3 }
+      if t.hasPrefix(w) { s = 6 } else if startsWord(t, w) { s = 5 } else if t.contains(w) { s = 3 }
       if host.hasPrefix(w) || host.contains("." + w) { s = max(s, 5) } else if u.contains(w) { s = max(s, 1.5) }
       if s == 0 { return nil }
       total += s
@@ -34,9 +43,18 @@ public enum QuickSearch {
       if l.1 != r.1 { return l.1 > r.1 }
       return l.0.url < r.0.url
     }
-    var seen = Set<String>()                                                    // same URL from several sources: keep the best-ranked
+    // Two OPEN tabs on one URL both stay reachable; any other source for a URL that an open tab already shows is redundant.
+    var openURLs = Set<String>()
+    for (c, _) in scored where c.kind == .openTab { openURLs.insert(c.url) }
+    var seen = Set<String>()
     var out: [QuickCandidate] = []
-    for (c, _) in scored where seen.insert(c.url).inserted { out.append(c); if out.count >= limit { break } }
+    for (c, _) in scored {
+      let key: String
+      if c.kind == .openTab { key = "tab:" + (c.tab.map { "\($0.raw)" } ?? c.url) }
+      else if openURLs.contains(c.url) { continue }
+      else { key = c.url }
+      if seen.insert(key).inserted { out.append(c); if out.count >= limit { break } }
+    }
     return out
   }
 }

@@ -1011,5 +1011,90 @@ do {
   let oHit = e2.quickSearch("elsewhere").first!
   check(e2.openQuickResult(oHit, in: w) == .selected && e2.state.windows[w]?.space == sp2 && e2.state.windows[w]?.selected == ot, "quick open: choosing a tab from another space switches to that space")
 }
+// 31. History URL sanitising + dialog text
+do {
+  func hist(_ s: String) -> String? { URL(string: s).flatMap(HistoryURL.forHistory) }
+  check(hist("https://example.com/a?q=1") == "https://example.com/a?q=1", "history url: normal pages are kept")
+  check(hist("https://user:pass@example.com/p") == "https://example.com/p", "history url: userinfo is dropped")
+  check(hist("https://app.example/cb#access_token=abc&x=1") == "https://app.example/cb" && hist("https://app.example/#/route/42") == "https://app.example/", "history url: the fragment is dropped (tokens, SPA routes)")
+  check(hist("https://x.example/login?token=abc") == nil && hist("https://x.example/?code=123&state=x") == nil && hist("https://x.example/m?Magic=1") == nil && hist("https://x.example/?X-Amz-Signature=zz") == nil, "history url: URLs carrying secrets in the query are NOT recorded")
+  check(hist("https://x.example/search?q=tokenizer") != nil && hist("https://x.example/?keyboard=1") != nil, "history url: harmless parameters containing those words are still recorded")
+  check(hist("javascript:alert(1)") == nil && hist("file:///etc/hosts") == nil && hist("data:text/html,x") == nil && hist("about:blank") == nil && hist("ftp://x.example") == nil, "history url: only http(s)")
+  check(URL(string: "https://u:p@x.example/a?token=1#f").flatMap(HistoryURL.forBookmark) == "https://x.example/a?token=1#f", "bookmark url: credentials dropped, the rest kept (explicit user choice)")
+  let nasty = "line1\nline2\u{202E}evil\u{0}\u{7}\u{200B}end\tTab"
+  let san = DialogText.sanitize(nasty); check(!san.unicodeScalars.contains { $0.value == 0x202E || $0.value == 0 || $0.value == 7 || $0.value == 0x200B } && san.contains("line2") && san.contains("end"), "dialog text: bidi override / control / zero-width characters stripped")
+  check(DialogText.sanitize(String(repeating: "x\n", count: 500)).split(separator: "\n").count <= 22, "dialog text: at most ~20 lines (buttons can't be pushed off-screen)")
+  check(DialogText.sanitize(String(repeating: "a", count: 100_000)).count <= 1001, "dialog text: length bounded")
+  check(DialogText.sanitize("héllo ☃ 日本語") == "héllo ☃ 日本語", "dialog text: normal unicode untouched")
+}
+// 32. 7th-review fixes: profile scoping, sanitised history, write-free search, titles, folding
+do {
+  let fp = tmpDB(); let (fs, f0s, _) = try SessionManager.start(path: fp, debounce: 0.05)
+  let ff = FFactory(); let fe = BrowserEngine(session: fs, state: f0s, factory: ff)
+  let profA = ProfileID(), profB = ProfileID()
+  let spA = fe.addSpace(name: "Work", profile: profA), spB = fe.addSpace(name: "Personal", profile: profB)
+  let wA = fe.openWindow(space: spA)!, wB = fe.openWindow(space: spB)!
+  let tA = fe.newTab(in: spA, url: "https://work.example/dash", title: "Work Dash", window: wA)!
+  let tB = fe.newTab(in: spB, url: "https://home.example/", title: "Home", window: wB)!
+  _ = tB
+  _ = try fe.toggleBookmark(tab: tA)                                                    // bookmark in the Work profile
+  fs.recordVisit(profile: profA, url: "https://work.example/secret-report", title: "Quarterly report")
+  fs.recordVisit(profile: profB, url: "https://home.example/recipes", title: "Pasta recipes")
+  let inB = fe.quickSearch("work", window: wB), inA = fe.quickSearch("work", window: wA)
+  check(!inB.contains { $0.kind == .bookmark || $0.kind == .history }, "palette: a Personal window never lists Work bookmarks or history (\(inB.map { "\($0.kind)" }))")
+  check(inA.contains { $0.kind == .history && $0.title == "Quarterly report" } || inA.contains { $0.kind == .bookmark }, "palette: the Work window does list its own bookmarks/history")
+  check(fe.quickSearch("recipes", window: wB).contains { $0.kind == .history } && !fe.quickSearch("recipes", window: wA).contains { $0.kind == .history }, "palette: history is scoped to the window's profile both ways")
+  check(inB.contains { $0.kind == .openTab && $0.title == "Work Dash" }, "palette: open tabs from every space stay reachable (choosing one switches space)")
+  // sanitised recording
+  let ft = ff.made[tA]!
+  ft.url = URL(string: "https://user:pw@news.example/a?id=1#access_token=zzz"); ft.title = "News"; ft.onChange?()
+  ft.url = URL(string: "https://login.example/cb?code=SECRET123"); ft.title = "Login"; ft.onChange?()
+  let rec = fs.searchHistory(profile: profA, query: "")
+  check(rec.contains { $0.url == "https://news.example/a?id=1" } && !rec.contains { $0.url.contains("SECRET") || $0.url.contains("pw@") || $0.url.contains("access_token") }, "history: credentials/fragments stripped, secret-bearing URLs not recorded (\(rec.map(\.url)))")
+  // bookmark title/url come from the LIVE page; credentials stripped
+  ft.url = URL(string: "https://u:p@docs.example/page?x=1"); ft.title = "Docs Live"; ft.onChange?()
+  let bmOK = try fe.toggleBookmark(tab: tA)   // currently bookmarked work.example/dash? stale model vs live URL differ -> toggles the LIVE page
+  let bms = fs.bookmarks(profile: profA)
+  check(bmOK == true && bms.contains { $0.url == "https://docs.example/page?x=1" && $0.title == "Docs Live" } && !bms.contains { $0.url.contains("u:p@") }, "bookmark: bookmarks the page being viewed (live URL/title), credentials stripped")
+  // restored tabs are not new visits
+  let rp = tmpDB(); let (rs, rs0, _) = try SessionManager.start(path: rp, debounce: 0.05)
+  var seeded = BrowserState(); let sps = seeded.addSpace(name: "S", profile: ProfileID()); let seedTab = seeded.addTab(in: sps, url: "https://restored.example/p", title: "Restored")!
+  let rf = FFactory(); _ = rs0; let re = BrowserEngine(session: rs, state: seeded, factory: rf)
+  rf.made[seedTab]!.url = URL(string: "https://restored.example/p"); rf.made[seedTab]!.title = "Restored"; rf.made[seedTab]!.onChange?()
+  check(rs.searchHistory(query: "restored").isEmpty, "history: a tab restored at launch is not counted as a new visit")
+  _ = re
+  // title race: URL changes while the title is still the previous page's
+  let tp = tmpDB(); let (ts, ts0, _) = try SessionManager.start(path: tp, debounce: 0.05); let tf = FFactory(); let te = BrowserEngine(session: ts, state: ts0, factory: tf)
+  let tsp = te.addSpace(name: "T", profile: ProfileID()); let tw = te.openWindow(space: tsp)!; let tt = te.newTab(in: tsp, url: "about:blank", window: tw)!
+  let tft = tf.made[tt]!
+  tft.url = URL(string: "https://one.example/"); tft.title = "Page One"; tft.onChange?()
+  tft.url = URL(string: "https://two.example/"); tft.onChange?()                           // title still "Page One": must NOT be attached to two.example
+  check(ts.searchHistory(query: "two.example").first?.title == "", "history: the previous page's title is not attached to the new URL")
+  tft.title = "Page Two"; tft.onChange?()
+  check(ts.searchHistory(query: "two.example").first?.title == "Page Two" && ts.searchHistory(query: "one.example").first?.title == "Page One", "history: the real title attaches once it arrives")
+  // search never needs a write: buffered visits are findable, DB untouched until flush
+  let bp = tmpDB(); let (bs, _, _) = try SessionManager.start(path: bp, debounce: 5)
+  bs.recordVisit(profile: profA, url: "https://buffered.example/x", title: "Buffered Page")
+  let n0 = try bs.store.historyCount(); let found = bs.searchHistory(profile: profA, query: "buffered")
+  check(n0 == 0 && found.count == 1 && found[0].title == "Buffered Page", "search: a just-visited page is findable without a database write")
+  // multi-word + folding + bounded scan
+  var recs: [(profile: ProfileID, url: String, title: String, at: Date)] = []
+  for i in 0..<300 { recs.append((profA, "https://google.example/p\(i)", "Google page \(i)", Date(timeIntervalSince1970: 5_000_000 + Double(i)))) }
+  recs.append((profA, "https://old.example/inv", "Google invoice March", Date(timeIntervalSince1970: 1_000)))
+  recs.append((profA, "https://cafe.example/menu", "Café Zürich Menü", Date(timeIntervalSince1970: 2_000)))
+  try bs.store.recordVisits(recs)
+  check(bs.searchHistory(profile: profA, query: "google invoice").map(\.url) == ["https://old.example/inv"], "search: ALL words are matched in SQL (an old 'google invoice' page is found among 300 newer google pages)")
+  check(bs.searchHistory(profile: profA, query: "cafe zurich menu").count == 1, "search: diacritics are folded (cafe/Café, zurich/Zürich, menu/Menü)")
+  let scanned = try bs.store.searchHistory(profile: profA, words: ["google"], limit: 500, scanWindow: 100)
+  check(scanned.count <= 100, "search: only the most recent scan-window rows are examined (bounded cost on a huge history)")
+  // ranking: diacritics + word boundaries + open tabs on one URL stay separate
+  let t1 = TabID(), t2 = TabID()
+  let rk = QuickSearch.rank([QuickCandidate(kind: .openTab, title: "Café", url: "https://same.example", tab: t1), QuickCandidate(kind: .openTab, title: "Café again", url: "https://same.example", tab: t2), QuickCandidate(kind: .history, title: "x-cafe-y", url: "https://h.example")], query: "cafe")
+  check(rk.filter { $0.kind == .openTab }.count == 2 && rk.count == 3, "ranking: diacritic-insensitive; two open tabs on the same URL both stay reachable")
+  // file modes
+  func mode(_ path: String) -> Int { ((try? FileManager.default.attributesOfItem(atPath: path))?[.posixPermissions] as? Int) ?? 0 }
+  let mp = tmpDB(); let (ms, _, _) = try SessionManager.start(path: mp); try ms.save(BrowserState()); _ = try ms.rotateBackup()
+  check(mode(mp) & 0o077 == 0 && mode(mp + ".backup-0") & 0o077 == 0, "files: database and backup are private (0600) — created that way, not chmod'ed afterwards")
+}
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

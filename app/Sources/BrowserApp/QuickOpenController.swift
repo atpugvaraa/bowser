@@ -43,11 +43,16 @@ final class QuickOpenController: NSObject, NSTableViewDataSource, NSTableViewDel
   @discardableResult func chooseFirst() -> Bool { guard !results.isEmpty else { return false }; table.selectRowIndexes([0], byExtendingSelection: false); choose(); return true }
 
   private func refresh() {
-    results = owner?.app.engine.quickSearch(field.stringValue, limit: 30) ?? []
+    results = owner.flatMap { $0.app.engine.quickSearch(field.stringValue, window: $0.id, limit: 30) } ?? []
     table.reloadData()
     if !results.isEmpty { table.selectRowIndexes([0], byExtendingSelection: false) }
   }
-  func controlTextDidChange(_ n: Notification) { refresh() }
+  /// Debounced: a keystroke burst runs ONE search (history search must never make typing stutter).
+  func controlTextDidChange(_ n: Notification) {
+    NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedRefresh), object: nil)
+    perform(#selector(debouncedRefresh), with: nil, afterDelay: 0.08)
+  }
+  @objc private func debouncedRefresh() { refresh() }
   func control(_ c: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
     switch sel {
     case #selector(NSResponder.moveDown(_:)): move(+1); return true
@@ -60,8 +65,10 @@ final class QuickOpenController: NSObject, NSTableViewDataSource, NSTableViewDel
   private func move(_ d: Int) { guard !results.isEmpty else { return }; let r = min(max(table.selectedRow + d, 0), results.count - 1); table.selectRowIndexes([r], byExtendingSelection: false); table.scrollRowToVisible(r) }
   @objc private func chooseClicked() { choose() }
   private func choose() {
-    guard let o = owner, table.selectedRow >= 0, table.selectedRow < results.count else { return }
-    let c = results[table.selectedRow]; close()
+    NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedRefresh), object: nil)
+    guard table.selectedRow >= 0, table.selectedRow < results.count else { return }
+    let c = results[table.selectedRow]; close()                              // the palette always closes, even if its window is gone
+    guard let o = owner else { return }
     if case .focusWindow(let other)? = o.app.engine.openQuickResult(c, in: o.id) { o.app.controllers[other]?.window.makeKeyAndOrderFront(nil) }
     o.refresh()
   }

@@ -30,6 +30,7 @@ public final class Store: @unchecked Sendable {
     // A zero-length main file next to a non-empty WAL is NOT a fresh database (the WAL may hold committed data).
     let walBytes = ((try? FileManager.default.attributesOfItem(atPath: path + "-wal"))?[.size] as? Int) ?? 0
     let hadWAL = walBytes > 0
+    let oldMask = umask(0o077); defer { umask(oldMask) }            // the database (and its WAL/SHM) are never even briefly group/world-readable
     var h: OpaquePointer?
     guard sqlite3_open_v2(path, &h, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let h else {
       let m = h.map { String(cString: sqlite3_errmsg($0)) } ?? "open failed"; sqlite3_close(h); throw StoreError.open(m)
@@ -214,6 +215,7 @@ public final class Store: @unchecked Sendable {
   /// Consistent online copy using SQLite's backup API; overwrites `dest` in place (so a fixed ring of slots needs no deletion).
   public func backup(toPath dest: String) throws {
     lock.lock(); defer { lock.unlock() }
+    let oldMask = umask(0o077); defer { umask(oldMask) }
     var out: OpaquePointer?
     guard sqlite3_open_v2(dest, &out, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let out else {
       sqlite3_close(out); throw StoreError.open("backup destination: \(dest)")
@@ -239,30 +241,36 @@ public final class Store: @unchecked Sendable {
         ON CONFLICT(profile,url) DO UPDATE SET visits = visits + 1, last_visited = MAX(last_visited, excluded.last_visited),
           title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE title END,
           title_l = CASE WHEN excluded.title <> '' THEN excluded.title_l ELSE title_l END
-        """, [.text(v.profile.raw.uuidString), .text(v.url), .text(v.title), .real(v.at.timeIntervalSinceReferenceDate), .text(v.url.lowercased()), .text(v.title.lowercased())])
+        """, [.text(v.profile.raw.uuidString), .text(v.url), .text(v.title), .real(v.at.timeIntervalSinceReferenceDate), .text(Fold.text(v.url)), .text(Fold.text(v.title))])
       }
     }
   }
   /// Update only the title of an existing entry (titles usually arrive after the visit was recorded).
   public func updateHistoryTitle(profile: ProfileID, url: String, title: String) throws {
     guard !title.isEmpty else { return }
-    try transaction { try run("UPDATE history SET title = ?, title_l = ? WHERE profile = ? AND url = ?", [.text(title), .text(title.lowercased()), .text(profile.raw.uuidString), .text(url)]) }
+    try transaction { try run("UPDATE history SET title = ?, title_l = ? WHERE profile = ? AND url = ?", [.text(title), .text(Fold.text(title)), .text(profile.raw.uuidString), .text(url)]) }
   }
-  /// Substring search (case-insensitive, no wildcard semantics: user input is never a LIKE pattern), newest first.
-  public func searchHistory(profile: ProfileID? = nil, query: String, limit: Int = 50) throws -> [HistoryEntry] {
+  /// Every word must appear (case/diacritic-insensitive, plain substring: user input is never a LIKE pattern), newest first.
+  /// Only the most recent `scanWindow` rows are considered so a huge history can never make typing slow.
+  public func searchHistory(profile: ProfileID? = nil, words: [String], limit: Int = 50, scanWindow: Int = 20_000) throws -> [HistoryEntry] {
     lock.lock(); defer { lock.unlock() }
     var out: [HistoryEntry] = []
-    let q = query.lowercased(); let lim = min(max(limit, 1), 500)
-    var sql = "SELECT profile,url,title,visits,last_visited FROM history WHERE (? = '' OR instr(url_l, ?) > 0 OR instr(title_l, ?) > 0)"
-    var binds: [Bind] = [.text(q), .text(q), .text(q)]
-    if let p = profile { sql += " AND profile = ?"; binds.append(.text(p.raw.uuidString)) }
-    sql += " ORDER BY last_visited DESC LIMIT \(lim)"
+    let lim = min(max(limit, 1), 500)
+    var inner = "SELECT profile,url,title,visits,last_visited,url_l,title_l FROM history"
+    var binds: [Bind] = []
+    if let p = profile { inner += " WHERE profile = ?"; binds.append(.text(p.raw.uuidString)) }
+    inner += " ORDER BY last_visited DESC LIMIT \(min(max(scanWindow, 100), 1_000_000))"
+    var sql = "SELECT profile,url,title,visits,last_visited FROM (\(inner))"
+    let ws = words.map { Fold.text($0) }.filter { !$0.isEmpty }
+    if !ws.isEmpty { sql += " WHERE " + ws.map { _ in "(instr(url_l, ?) > 0 OR instr(title_l, ?) > 0)" }.joined(separator: " AND "); for w in ws { binds.append(.text(w)); binds.append(.text(w)) } }
+    sql += " LIMIT \(lim)"
     try queryLocked(sql, binds) { st in
       guard let pid = UUID(uuidString: col(st, 0)) else { return }
       out.append(HistoryEntry(profile: ProfileID(pid), url: col(st, 1), title: col(st, 2), visits: Int(sqlite3_column_int(st, 3)), lastVisited: Date(timeIntervalSinceReferenceDate: sqlite3_column_double(st, 4))))
     }
     return out
   }
+  public func searchHistory(profile: ProfileID? = nil, query: String, limit: Int = 50) throws -> [HistoryEntry] { try searchHistory(profile: profile, words: QuickSearch.words(query), limit: limit) }
   public func historyCount() throws -> Int { lock.lock(); defer { lock.unlock() }; var n = 0; try queryLocked("SELECT COUNT(*) FROM history") { n = Int(sqlite3_column_int64($0, 0)) }; return n }
 
   public func addBookmark(profile: ProfileID, url: String, title: String, at: Date = Date()) throws -> UUID {

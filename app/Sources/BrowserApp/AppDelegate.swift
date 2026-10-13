@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
   }
   func validateMenuItem(_ item: NSMenuItem) -> Bool {
     guard engine != nil else { return false }                       // still launching
+    if item.action == #selector(bookmarkPage(_:)) { item.title = keyController?.selected.map { engine.isBookmarked(tab: $0) } == true ? "Remove Bookmark" : "Bookmark This Page" }
     guard let c = keyController, let t = c.selected.flatMap({ engine.tab($0) }) else {
       return [#selector(newTab(_:)), #selector(newWindow(_:)), #selector(newSpace(_:)), #selector(showDownloads(_:)), #selector(closeWindow(_:))].contains(item.action!) || item.action == #selector(switchSpace(_:))
     }

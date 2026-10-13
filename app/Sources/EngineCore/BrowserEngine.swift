@@ -30,6 +30,7 @@ public final class BrowserEngine {
   private var lastStateSave: Date = .distantPast
   private var lastPrune: Date = .distantPast
   private var visitedURL: [TabID: String] = [:]      // last URL recorded in history per tab (one visit per navigation)
+  private var visitedTitle: [TabID: String] = [:]    // title seen at that visit (a title that hasn't changed belongs to the PREVIOUS page)
 
   public init(session: SessionManager, state: BrowserState, factory: TabFactory, lifecycle: LifecycleManager = LifecycleManager()) {
     self.session = session; self.state = state; self.factory = factory; self.lifecycle = lifecycle
@@ -181,24 +182,35 @@ public final class BrowserEngine {
     guard let t = tabs[id] else { return }
     syncOne(id, t); recordHistory(id, t); session.scheduleSave(state); onChange?()
   }
-  /// One history visit per finished navigation to an http(s) page; later title updates refine it. Error pages and blank tabs are not history.
+  /// One history visit per finished navigation to an http(s) page. Stored URLs are sanitised (no credentials/fragments; pages whose URL carries a
+  /// secret are not recorded at all). Tabs restored at launch do not count as new visits. Later title changes refine the SAME visit only.
   private func recordHistory(_ id: TabID, _ t: any EngineTab) {
-    guard !t.isLoadingPage, let u = t.currentURL, let sc = u.scheme?.lowercased(), sc == "http" || sc == "https", let rec = state.tabs[id], let profile = state.space(rec.space)?.profile else { return }
-    let key = u.absoluteString
-    if visitedURL[id] != key { visitedURL[id] = key; session.recordVisit(profile: profile, url: key, title: t.currentTitle ?? "") }
-    else if let title = t.currentTitle { session.noteTitle(profile: profile, url: key, title: title) }
+    guard !t.isLoadingPage, let u = t.currentURL, let key = HistoryURL.forHistory(u), let rec = state.tabs[id], let profile = state.space(rec.space)?.profile else { return }
+    let title = t.currentTitle ?? ""
+    if visitedURL[id] != key {
+      var fresh = title                                                          // unchanged title = still the previous page's title: attach it later
+      if let prev = visitedTitle[id], prev == title { fresh = "" }
+      visitedURL[id] = key; visitedTitle[id] = title
+      session.recordVisit(profile: profile, url: key, title: fresh)
+    } else if !title.isEmpty { visitedTitle[id] = title; session.noteTitle(profile: profile, url: key, title: title) }
   }
 
   // MARK: quick open, bookmarks
-  /// Everything the ⌘K palette can open, ranked: open tabs (all spaces), bookmarks, closed tabs, history.
-  public func quickSearch(_ query: String, limit: Int = 30) -> [QuickCandidate] {
+  /// Everything the ⌘K palette can open, ranked: open tabs (all spaces), closed tabs / bookmarks / history of the window's own PROFILE only
+  /// (a Work bookmark must never open under the Personal profile's logins).
+  public func quickSearch(_ query: String, window: WindowID? = nil, limit: Int = 30) -> [QuickCandidate] {
     var pool: [QuickCandidate] = []
     let now = Date()
     func recency(_ d: Date) -> Double { exp(-max(now.timeIntervalSince(d), 0) / (7 * 86_400)) }
+    var scope: ProfileID? = state.spaces.first?.profile
+    if let w = window, let win = state.windows[w], let sp = state.space(win.space) { scope = sp.profile }
     for sp in state.spaces { for tid in sp.tabOrder { if let r = state.tabs[tid] { pool.append(QuickCandidate(kind: .openTab, title: r.title, url: r.url, recency: recency(r.lastActive), tab: tid)) } } }
-    for a in state.archive { pool.append(QuickCandidate(kind: .closedTab, title: a.title, url: a.url, recency: recency(a.closedAt), tab: a.id)) }
-    for b in session.bookmarks() { pool.append(QuickCandidate(kind: .bookmark, title: b.title, url: b.url, recency: recency(b.added))) }
-    for h in session.searchHistory(query: QuickSearch.words(query).first ?? "", limit: 200) { pool.append(QuickCandidate(kind: .history, title: h.title, url: h.url, recency: recency(h.lastVisited))) }
+    for a in state.archive {
+      if let ap = a.profile, ap != scope { continue }
+ pool.append(QuickCandidate(kind: .closedTab, title: a.title, url: a.url, recency: recency(a.closedAt), tab: a.id))
+    }
+    for b in session.bookmarks(profile: scope) { pool.append(QuickCandidate(kind: .bookmark, title: b.title, url: b.url, recency: recency(b.added))) }
+    for h in session.searchHistory(profile: scope, words: QuickSearch.words(query), limit: 200) { pool.append(QuickCandidate(kind: .history, title: h.title, url: h.url, recency: recency(h.lastVisited))) }
     return QuickSearch.rank(pool, query: query, limit: limit)
   }
   /// Open a palette result in `window`: switch to an open tab (its space too), restore a closed tab, or open a URL in a new tab.
@@ -218,13 +230,27 @@ public final class BrowserEngine {
   }
   /// Bookmark / un-bookmark the page shown in a tab (per profile). Returns true if it is bookmarked afterwards.
   @discardableResult public func toggleBookmark(tab id: TabID) throws -> Bool {
-    guard let rec = state.tabs[id], let profile = state.space(rec.space)?.profile, let u = URL(string: rec.url), let sc = u.scheme?.lowercased(), sc == "http" || sc == "https" else { return false }
-    if let existing = session.bookmarks(profile: profile).first(where: { $0.url == rec.url }) { try session.removeBookmark(existing.id); return false }
-    try session.addBookmark(profile: profile, url: rec.url, title: rec.title.isEmpty ? (u.host ?? rec.url) : rec.title); return true
+    guard let rec = state.tabs[id] else { return false }
+    guard let space = state.space(rec.space) else { return false }
+    guard let target = bookmarkTarget(id, rec) else { return false }
+    let existing = session.bookmarks(profile: space.profile).first { $0.url == target.url }
+    if let e = existing { try session.removeBookmark(e.id); return false }
+    try session.addBookmark(profile: space.profile, url: target.url, title: target.title)
+    return true
   }
   public func isBookmarked(tab id: TabID) -> Bool {
-    guard let rec = state.tabs[id], let profile = state.space(rec.space)?.profile else { return false }
-    return session.bookmarks(profile: profile).contains { $0.url == rec.url }
+    guard let rec = state.tabs[id], let space = state.space(rec.space), let target = bookmarkTarget(id, rec) else { return false }
+    return session.bookmarks(profile: space.profile).contains { $0.url == target.url }
+  }
+  /// The page the user is LOOKING at (live URL/title), not a possibly stale model record; credentials stripped.
+  private func bookmarkTarget(_ id: TabID, _ rec: TabRecord) -> (url: String, title: String)? {
+    var live: URL? = URL(string: rec.url)
+    if let t = tabs[id], let cur = t.currentURL { live = cur }
+    guard let u = live, let url = HistoryURL.forBookmark(u) else { return nil }
+    var title: String = rec.title
+    if let t = tabs[id], let ct = t.currentTitle { title = ct }
+    if title.isEmpty { title = u.host ?? url }
+    return (url, title)
   }
   public func bookmarks(inSpace space: SpaceID) -> [Store.Bookmark] { state.space(space).map { session.bookmarks(profile: $0.profile) } ?? [] }
   public func clearHistory() throws { try session.clearHistory() }
@@ -264,12 +290,13 @@ public final class BrowserEngine {
       if blob.failed { unreadBlobs.insert(id) } else { unreadBlobs.remove(id) }
       let t = factory.makeTab(id: id, url: URL(string: rec.url), profile: profile, restoredState: blob.data)
       tabs[id] = t; tabProfile[id] = profile
+      if let key = URL(string: rec.url).flatMap(HistoryURL.forHistory) { visitedURL[id] = key; visitedTitle[id] = rec.title }      // restored/created with this page: not a new visit
       t.onChange = { [weak self] in self?.tabChanged(id) }
       lifecycle.register(t, host: URL(string: rec.url)?.host, lastActive: rec.lastActive)
     }
     for id in Array(tabs.keys) where state.tabs[id] == nil {
       if let t = tabs[id] { persistState(id, t); t.hibernate(force: true) }
-      lifecycle.unregister(id); tabs[id] = nil; tabProfile[id] = nil
+      lifecycle.unregister(id); tabs[id] = nil; tabProfile[id] = nil; visitedURL[id] = nil; visitedTitle[id] = nil
     }
   }
 }
